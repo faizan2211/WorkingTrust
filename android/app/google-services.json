@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "648753543454",
+    "project_id": "workingtrust-bc79f",
+    "storage_bucket": "workingtrust-bc79f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:648753543454:android:df97f2a2d077180b7db10f",
+        "android_client_info": {
+          "package_name": "com.workingtrust.working_trust"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVKXhGEH-Imf0JGDWFHr6MsZ6Vvl7SKxI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
