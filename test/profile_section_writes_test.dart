@@ -16,6 +16,7 @@ PortfolioDraft _draft({
   String mimeType = 'image/png',
   String kind = 'image',
   String filename = 'orbita.png',
+  bool linkOnly = false,
   Uint8List? bytes,
 }) => (
   title: title,
@@ -24,10 +25,12 @@ PortfolioDraft _draft({
   description: 'A design system for a SaaS product.',
   link: 'https://orbita.app',
   status: status,
-  kind: kind,
-  bytes: bytes ?? Uint8List.fromList(utf8.encode('png-bytes')),
-  filename: filename,
-  mimeType: mimeType,
+  kind: linkOnly ? 'link' : kind,
+  bytes: linkOnly
+      ? null
+      : bytes ?? Uint8List.fromList(utf8.encode('png-bytes')),
+  filename: linkOnly ? '' : filename,
+  mimeType: linkOnly ? '' : mimeType,
 );
 
 void main() {
@@ -103,6 +106,48 @@ void main() {
     });
 
     test(
+      'certification proof uploads first and is saved with the record',
+      () async {
+        final proofBytes = Uint8List.fromList(utf8.encode('png-proof'));
+        expect(
+          await profile.saveCertification(
+            (
+              id: '',
+              title: 'Cloud Practitioner',
+              provider: 'Amazon',
+              issued: 'March 2026',
+              credentialId: 'AWS-1',
+              certificateUrl: '',
+              description: 'Cloud certification.',
+            ),
+            proofBytes: proofBytes,
+            proofFilename: 'certificate.png',
+            proofMimeType: 'image/png',
+          ),
+          isTrue,
+        );
+        // The image has to reach storage before the row is written, so the
+        // certification can point at the URL the upload handed back.
+        expect(
+          _backend.paths.indexOf('/api/upload'),
+          lessThan(_backend.paths.indexOf('/api/profile/certifications')),
+        );
+        final saved = profile.certifications.single;
+        expect(saved.certificateUrl, 'https://cdn.example/certificate.png');
+        expect(
+          _backend.bodyFor('/api/profile/certifications')['certificateUrl'],
+          saved.certificateUrl,
+        );
+
+        await profile.load(force: true);
+        expect(
+          profile.certifications.single.certificateUrl,
+          saved.certificateUrl,
+        );
+      },
+    );
+
+    test(
       'a row the server does not know stays listed with the route message',
       () async {
         expect(
@@ -112,6 +157,7 @@ void main() {
             provider: 'Amazon',
             issued: 'March 2026',
             credentialId: 'AWS-1',
+            certificateUrl: '',
             description: '',
           )),
           isTrue,
@@ -175,6 +221,33 @@ void main() {
           'description': 'A design system for a SaaS product.',
           'imageUrl': item.image,
           'mediaType': 'image',
+          'linkUrl': 'https://orbita.app',
+          'status': 'PUBLISHED',
+        });
+      },
+    );
+
+    test(
+      'a valid project link can be published without a media upload',
+      () async {
+        expect(await profile.publishPortfolio(_draft(linkOnly: true)), isTrue);
+
+        expect(
+          _backend.paths.where(
+            (path) => path == '/api/profile/portfolio/media',
+          ),
+          isEmpty,
+        );
+        expect(profile.portfolio.single.image, isEmpty);
+        expect(profile.portfolio.single.kind, 'link');
+        expect(profile.portfolio.single.link, 'https://orbita.app');
+        expect(_backend.bodyFor('/api/profile/portfolio'), {
+          'title': 'Orbita Design System',
+          'role': 'Lead Designer',
+          'skills': ['Figma', 'Design System'],
+          'description': 'A design system for a SaaS product.',
+          'imageUrl': '',
+          'mediaType': 'link',
           'linkUrl': 'https://orbita.app',
           'status': 'PUBLISHED',
         });

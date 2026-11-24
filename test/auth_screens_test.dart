@@ -111,9 +111,17 @@ void main() {
         height: width <= 360 ? 900 : 1400,
       );
 
-      // The chips come from the backend, so they only exist once it answers.
+      // The fields dropdown opens on the backend categories, so they only
+      // exist once it answers and the menu is expanded.
+      final trigger = find.byTooltip('Choose fields');
+      await tester.ensureVisible(trigger);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.tap(trigger);
+      await tester.pump(const Duration(milliseconds: 400));
       expect(find.text('Graphic Design'), findsOneWidget, reason: '${width}dp');
       expect(tester.takeException(), isNull, reason: '${width}dp');
+      await tester.tap(find.text('Done'));
+      await tester.pump(const Duration(milliseconds: 400));
     }
   });
 

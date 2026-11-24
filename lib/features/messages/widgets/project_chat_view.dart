@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -284,7 +285,7 @@ class _Bubble extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (message.body.isNotEmpty)
-                  Text(message.body, style: AppTextStyles.bodyMedium),
+                  _MessageBody(text: message.body, onOpen: onOpen),
                 if (attachment != null)
                   Padding(
                     padding: EdgeInsets.only(
@@ -322,6 +323,113 @@ class _Bubble extends StatelessWidget {
           ),
           const SizedBox(height: AppDimensions.xs),
           Text(chatTimeLabel(message.createdAt), style: AppTextStyles.caption),
+        ],
+      ),
+    );
+  }
+}
+
+typedef _MessagePart = ({String text, bool isLink});
+
+class _MessageBody extends StatefulWidget {
+  final String text;
+  final Future<void> Function(String url) onOpen;
+
+  const _MessageBody({required this.text, required this.onOpen});
+
+  @override
+  State<_MessageBody> createState() => _MessageBodyState();
+}
+
+class _MessageBodyState extends State<_MessageBody> {
+  static final RegExp _urlPattern = RegExp(r'https?://[^\s<>()]+');
+  static final RegExp _trailingPunctuation = RegExp(r'[.,!?;:]+$');
+
+  List<_MessagePart> _parts = [];
+  List<TapGestureRecognizer> _recognizers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _updateParts();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MessageBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) _updateParts();
+  }
+
+  void _updateParts() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+
+    final parts = <_MessagePart>[];
+    var cursor = 0;
+    for (final match in _urlPattern.allMatches(widget.text)) {
+      final rawUrl = match.group(0)!;
+      final url = rawUrl.replaceFirst(_trailingPunctuation, '');
+      if (url.isEmpty) continue;
+
+      final urlEnd = match.start + url.length;
+      if (match.start > cursor) {
+        parts.add((
+          text: widget.text.substring(cursor, match.start),
+          isLink: false,
+        ));
+      }
+      parts.add((text: url, isLink: true));
+      if (urlEnd < match.end) {
+        parts.add((
+          text: widget.text.substring(urlEnd, match.end),
+          isLink: false,
+        ));
+      }
+      cursor = match.end;
+    }
+    if (cursor < widget.text.length) {
+      parts.add((text: widget.text.substring(cursor), isLink: false));
+    }
+    if (parts.isEmpty) {
+      parts.add((text: widget.text, isLink: false));
+    }
+
+    _parts = parts;
+    _recognizers = [
+      for (final part in parts)
+        if (part.isLink)
+          TapGestureRecognizer()..onTap = () => widget.onOpen(part.text),
+    ];
+  }
+
+  @override
+  void dispose() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var linkIndex = 0;
+    return RichText(
+      text: TextSpan(
+        style: AppTextStyles.bodyMedium,
+        children: [
+          for (final part in _parts)
+            if (part.isLink)
+              TextSpan(
+                text: part.text,
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.primary,
+                  decoration: TextDecoration.underline,
+                ),
+                recognizer: _recognizers[linkIndex++],
+              )
+            else
+              TextSpan(text: part.text),
         ],
       ),
     );

@@ -31,9 +31,10 @@ enum ProfileStatus {
 /// Identity — name, email and role — comes from the signed-in session, and
 /// everything else the backend holds comes from `GET /api/profile`: title,
 /// rate, overview, skills, linked URLs, the stored photo, the intro link and all
-/// five section tables. The server is the source of truth; the screens show the
-/// account's cached document the moment the session lands and the read replaces
-/// it as soon as it answers.
+/// five section tables. Work history comes from its own account-scoped route.
+/// The server is the source of truth; the screens show the account's cached
+/// document the moment the session lands and the read replaces it as soon as it
+/// answers.
 ///
 /// Writes stay through their own routes — `PATCH /api/profile` for the identity
 /// and `/api/profile/{section}` for a row — and each answer is applied to the
@@ -54,6 +55,10 @@ class ProfileController extends ChangeNotifier {
   ProfileStatus _status = ProfileStatus.signedOut;
   String _errorMessage = '';
   bool _saving = false;
+  bool _workHistoryLoading = false;
+  String _workHistoryErrorMessage = '';
+  Future<void>? _workHistoryTask;
+  String _workHistoryAccount = '';
 
   /// The profile read in flight, and the account it was read for, so two screens
   /// opened together — or two taps — cost one request instead of several.
@@ -76,8 +81,8 @@ class ProfileController extends ChangeNotifier {
   String? avatarUrl;
   Uint8List? avatarBytes;
 
-  /// Sections of the profile, filled by `GET /api/profile` and kept in step with
-  /// the answers of their own write routes. Every row carries the id the server
+  /// Profile sections filled by `GET /api/profile` and kept in step with the
+  /// answers of their own write routes. Every row carries the id the server
   /// gave it, which is what lets it be edited or removed later.
   final List<PortfolioItem> portfolio = [];
   final List<String> skills = [];
@@ -85,6 +90,8 @@ class ProfileController extends ChangeNotifier {
   final List<Education> education = [];
   final List<Certification> certifications = [];
   final List<Employment> employment = [];
+
+  /// Completed and active assignments returned by the work-history endpoint.
   final List<WorkHistoryJob> workHistory = [];
 
   /// The intro link `POST /api/profile/video-intro` stored. The route takes a
@@ -109,6 +116,8 @@ class ProfileController extends ChangeNotifier {
       _status == ProfileStatus.failed ? _errorMessage : '';
   bool get isLoading => _status == ProfileStatus.loading;
   bool get isSaving => _saving;
+  bool get isWorkHistoryLoading => _workHistoryLoading;
+  String get workHistoryErrorMessage => _workHistoryErrorMessage;
   bool get isSignedIn => _status == ProfileStatus.ready;
 
   String get initials {
@@ -166,6 +175,48 @@ class ProfileController extends ChangeNotifier {
       _status = ProfileStatus.failed;
     }
     notifyListeners();
+  }
+
+  Future<void> _loadWorkHistory(String account) {
+    if (userId != account || _status != ProfileStatus.ready) {
+      return Future<void>.value();
+    }
+    final pending = _workHistoryTask;
+    if (pending != null && _workHistoryAccount == account) return pending;
+    _workHistoryLoading = true;
+    _workHistoryErrorMessage = '';
+    notifyListeners();
+    late final Future<void> task;
+    task = _fetchWorkHistory(account).whenComplete(() {
+      if (identical(_workHistoryTask, task)) {
+        _workHistoryTask = null;
+        _workHistoryAccount = '';
+      }
+    });
+    _workHistoryTask = task;
+    _workHistoryAccount = account;
+    return task;
+  }
+
+  Future<void> refreshWorkHistory() => _loadWorkHistory(userId);
+
+  Future<void> _fetchWorkHistory(String account) async {
+    try {
+      final saved = await _profileRepository.fetchWorkHistory();
+      if (userId != account || _status != ProfileStatus.ready) return;
+      workHistory
+        ..clear()
+        ..addAll(saved.completed)
+        ..addAll(saved.inProgress);
+    } catch (error) {
+      if (userId != account || _status != ProfileStatus.ready) return;
+      _workHistoryErrorMessage = _messageFrom(error);
+    } finally {
+      if (userId == account && _status == ProfileStatus.ready) {
+        _workHistoryLoading = false;
+        notifyListeners();
+      }
+    }
   }
 
   /// Writes the identity block to `PATCH /api/profile`.
@@ -424,14 +475,52 @@ class ProfileController extends ChangeNotifier {
   Future<bool> removeEducation(int index) =>
       _removeRow(education, index, _profileRepository.removeEducation);
 
-  Future<bool> saveCertification(Certification row, {int index = -1}) =>
-      _writeRow(
+  Future<bool> saveCertification(
+    Certification row, {
+    int index = -1,
+    Uint8List? proofBytes,
+    String proofFilename = '',
+    String proofMimeType = '',
+  }) async {
+    if (proofBytes == null) {
+      return _writeRow(
         certifications,
         index,
         row,
         _profileRepository.saveCertification,
         'save this certification',
       );
+    }
+    if (!_openWrite('save this certification')) return false;
+    try {
+      final proofUrl = await _profileRepository.uploadCertificationProof(
+        proofBytes,
+        filename: proofFilename,
+        mimeType: proofMimeType,
+      );
+      final saved = await _profileRepository.saveCertification((
+        id: row.id,
+        title: row.title,
+        provider: row.provider,
+        issued: row.issued,
+        credentialId: row.credentialId,
+        certificateUrl: proofUrl,
+        description: row.description,
+      ));
+      if (index < 0) {
+        certifications.add(saved);
+      } else {
+        certifications[index] = saved;
+      }
+      await _persist();
+      return true;
+    } catch (e) {
+      _errorMessage = _messageFrom(e);
+      return false;
+    } finally {
+      notifyListeners();
+    }
+  }
 
   Future<bool> removeCertification(int index) =>
       _removeRow(certifications, index, _profileRepository.removeCertification);
@@ -447,9 +536,8 @@ class ProfileController extends ChangeNotifier {
   Future<bool> removeEmployment(int index) =>
       _removeRow(employment, index, _profileRepository.removeEmployment);
 
-  /// Uploads the project's file to the media route, then creates the row that
-  /// points at it. A new project joins the grid at the front, where the screen
-  /// shows it.
+  /// Stores the optional media file before creating the portfolio row. A link-
+  /// only project skips upload; every successful project joins the grid.
   Future<bool> publishPortfolio(PortfolioDraft draft) async {
     if (!_openWrite('publish this project')) return false;
     try {
@@ -630,6 +718,10 @@ class ProfileController extends ChangeNotifier {
     certifications.clear();
     employment.clear();
     workHistory.clear();
+    _workHistoryLoading = false;
+    _workHistoryErrorMessage = '';
+    _workHistoryTask = null;
+    _workHistoryAccount = '';
     videoIntro = '';
     githubUrl = '';
     websiteUrl = '';
@@ -666,7 +758,7 @@ class ProfileController extends ChangeNotifier {
     final account = userId;
     final pending = _syncTask;
     if (pending != null && _syncAccount == account) return pending;
-    final task = _readProfile(account);
+    final task = _syncProfile(account);
     _syncTask = task;
     _syncAccount = account;
     try {
@@ -677,6 +769,10 @@ class ProfileController extends ChangeNotifier {
         _syncAccount = '';
       }
     }
+  }
+
+  Future<void> _syncProfile(String account) async {
+    await Future.wait<void>([_readProfile(account), _loadWorkHistory(account)]);
   }
 
   Future<void> _readProfile(String account) async {

@@ -26,8 +26,14 @@ typedef ProposalFunnel = ({
   int hires,
 });
 
-/// One day of profile activity, in the server's own `label` (`Jan 05`).
-typedef StatPoint = ({String label, int? views, int? impressions, int? clicks});
+/// One day of profile activity, in the server's own date and label.
+typedef StatPoint = ({
+  String date,
+  String label,
+  int? views,
+  int? impressions,
+  int? clicks,
+});
 
 MyStatsSnapshot statsFromJson(Map<String, dynamic> json) {
   final funnel = json['proposalFunnel'];
@@ -51,6 +57,7 @@ MyStatsSnapshot statsFromJson(Map<String, dynamic> json) {
     profileSeries: [
       for (final row in jsonRows(json['profileSeries']))
         (
+          date: jsonText(row['date']),
           label: jsonText(row['label']),
           views: jsonCount(row['views']),
           impressions: jsonCount(row['impressions']),

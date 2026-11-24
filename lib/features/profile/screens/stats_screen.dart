@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../app/routes/route_names.dart';
@@ -5,7 +7,6 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/widgets/app_card.dart';
-import '../../../core/widgets/app_dropdown.dart';
 import '../../../core/widgets/app_tag.dart';
 import '../../../core/widgets/module_app_bar.dart';
 import '../../finance/controller/stats_controller.dart';
@@ -17,7 +18,7 @@ import '../widgets/buy_bids_sheet.dart';
 ///
 /// The earnings total, the Job Success Score, the connects on the account, the
 /// proposal funnel and the daily profile series are the server's own rows — the
-/// same query the website's My stats page runs, with the same two windows. A
+/// same query the website's My stats page runs, for the selected date ranges. A
 /// figure the account has not earned stays the server's absence rather than
 /// becoming a number the app invented. The screen reads once when it opens and
 /// again when it is pulled, never on a timer.
@@ -34,10 +35,6 @@ class _StatsScreenState extends State<StatsScreen> {
     'Impression & Clicks',
   ];
 
-  /// The chart renders one `Expanded` per day, so 30 points on a narrow phone
-  /// crush to nothing: it draws the latest stretch and says so underneath.
-  static const int _chartDays = 14;
-
   int _metricTab = 0;
 
   @override
@@ -46,22 +43,6 @@ class _StatsScreenState extends State<StatsScreen> {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => StatsController.instance.load(),
     );
-  }
-
-  static String _windowLabel(int days) => 'Last $days Days';
-
-  static List<String> get _windowItems => [
-    for (final days in StatsController.windows) _windowLabel(days),
-  ];
-
-  /// The label back to the day count the route accepts. A label outside the
-  /// three the screen offers is ignored rather than sent as a window the server
-  /// would quietly swap for its own default.
-  static int? _daysFor(String label) {
-    for (final days in StatsController.windows) {
-      if (_windowLabel(days) == label) return days;
-    }
-    return null;
   }
 
   @override
@@ -206,13 +187,11 @@ class _StatsScreenState extends State<StatsScreen> {
         children: [
           _PanelHeader(
             title: 'Proposals (${stats.funnel.proposals})',
-            dropdown: AppDropdown(
-              value: _windowLabel(controller.proposalDays),
-              items: _windowItems,
-              onChanged: (value) {
-                final days = _daysFor(value);
-                if (days != null) controller.setProposalDays(days);
-              },
+            range: _CalendarRange(
+              start: controller.proposalStart,
+              end: controller.proposalEnd,
+              enabled: !controller.isBusy,
+              onChanged: controller.setProposalRange,
             ),
           ),
           const SizedBox(height: AppDimensions.lg),
@@ -231,13 +210,11 @@ class _StatsScreenState extends State<StatsScreen> {
         children: [
           _PanelHeader(
             title: 'Profile metrics',
-            dropdown: AppDropdown(
-              value: _windowLabel(controller.profileDays),
-              items: _windowItems,
-              onChanged: (value) {
-                final days = _daysFor(value);
-                if (days != null) controller.setProfileDays(days);
-              },
+            range: _CalendarRange(
+              start: controller.profileStart,
+              end: controller.profileEnd,
+              enabled: !controller.isBusy,
+              onChanged: controller.setProfileRange,
             ),
           ),
           const SizedBox(height: AppDimensions.md),
@@ -292,26 +269,18 @@ class _StatsScreenState extends State<StatsScreen> {
   List<({String label, int value})> _metricSeries(MyStatsSnapshot stats) =>
       _metricTab == 0 ? stats.viewBars : stats.impressionBars;
 
-  /// The capped chart plus what the server totals for the window it covers.
   List<Widget> _metricChart(MyStatsSnapshot stats) {
     final series = _metricSeries(stats);
-    final shown = series.length > _chartDays
-        ? series.sublist(series.length - _chartDays)
-        : series;
     final impressions = stats.impressions;
     final clicks = stats.clicks;
 
     return [
-      _BarChart(bars: shown, color: AppColors.primary, twoLineLabels: true),
-      if (series.length > shown.length) ...[
-        const SizedBox(height: AppDimensions.sm),
-        Text(
-          'Showing the latest ${shown.length} of ${series.length} days.',
-          style: AppTextStyles.bodySmall.copyWith(
-            color: AppColors.textSecondary,
-          ),
-        ),
-      ],
+      _BarChart(
+        bars: series,
+        color: AppColors.primary,
+        twoLineLabels: true,
+        scrollable: true,
+      ),
       if (_metricTab == 1) ...[
         const SizedBox(height: AppDimensions.sm),
         Text(
@@ -407,32 +376,115 @@ class _SummaryCard extends StatelessWidget {
 
 class _PanelHeader extends StatelessWidget {
   final String title;
-  final Widget dropdown;
+  final Widget range;
 
-  const _PanelHeader({required this.title, required this.dropdown});
+  const _PanelHeader({required this.title, required this.range});
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const dropdownWidth = 176.0;
-        if (constraints.maxWidth < dropdownWidth + 140) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: AppTextStyles.heading4),
-              const SizedBox(height: AppDimensions.sm),
-              SizedBox(width: constraints.maxWidth, child: dropdown),
-            ],
-          );
-        }
-        return Row(
-          children: [
-            Expanded(child: Text(title, style: AppTextStyles.heading4)),
-            SizedBox(width: dropdownWidth, child: dropdown),
-          ],
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: AppTextStyles.heading4),
+        const SizedBox(height: AppDimensions.sm),
+        range,
+      ],
+    );
+  }
+}
+
+class _CalendarRange extends StatelessWidget {
+  final DateTime start;
+  final DateTime? end;
+  final bool enabled;
+  final Future<void> Function(DateTime start, DateTime? end) onChanged;
+
+  const _CalendarRange({
+    required this.start,
+    required this.end,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  static const _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  static DateTime _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  static String _label(DateTime? date) {
+    if (date == null) return 'Today (optional)';
+    return '${_months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  Future<void> _pickStart(BuildContext context) async {
+    final today = _dateOnly(DateTime.now());
+    final chosen = await showDatePicker(
+      context: context,
+      initialDate: start.isAfter(today) ? today : start,
+      firstDate: DateTime(2000),
+      lastDate: today,
+      helpText: 'Select start date',
+    );
+    if (chosen == null) return;
+    final nextStart = _dateOnly(chosen);
+    await onChanged(
+      nextStart,
+      end != null && end!.isBefore(nextStart) ? null : end,
+    );
+  }
+
+  Future<void> _pickEnd(BuildContext context) async {
+    final today = _dateOnly(DateTime.now());
+    final currentEnd = end;
+    final chosen = await showDatePicker(
+      context: context,
+      initialDate: currentEnd ?? (start.isAfter(today) ? today : start),
+      firstDate: start,
+      lastDate: today,
+      helpText: 'Select optional end date',
+    );
+    if (chosen == null) return;
+    await onChanged(start, _dateOnly(chosen));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppDimensions.xs,
+      runSpacing: AppDimensions.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        OutlinedButton.icon(
+          onPressed: enabled ? () => _pickStart(context) : null,
+          icon: const Icon(Icons.calendar_today_outlined, size: 16),
+          label: Text('From ${_label(start)}'),
+        ),
+        OutlinedButton.icon(
+          onPressed: enabled ? () => _pickEnd(context) : null,
+          icon: const Icon(Icons.event_outlined, size: 16),
+          label: Text('To ${_label(end)}'),
+        ),
+        if (end != null)
+          IconButton(
+            tooltip: 'Clear end date',
+            onPressed: enabled ? () => onChanged(start, null) : null,
+            icon: const Icon(Icons.close),
+            visualDensity: VisualDensity.compact,
+          ),
+      ],
     );
   }
 }
@@ -441,11 +493,13 @@ class _BarChart extends StatelessWidget {
   final List<({String label, int value})> bars;
   final Color color;
   final bool twoLineLabels;
+  final bool scrollable;
 
   const _BarChart({
     required this.bars,
     required this.color,
     this.twoLineLabels = false,
+    this.scrollable = false,
   });
 
   static const double _chartHeight = 150;
@@ -457,7 +511,7 @@ class _BarChart extends StatelessWidget {
       if (bar.value > peak) peak = bar.value;
     }
 
-    return Row(
+    final chart = Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         for (final bar in bars)
@@ -523,6 +577,16 @@ class _BarChart extends StatelessWidget {
             ),
           ),
       ],
+    );
+    if (!scrollable) return chart;
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: math.max(constraints.maxWidth, bars.length * 64).toDouble(),
+          child: chart,
+        ),
+      ),
     );
   }
 }

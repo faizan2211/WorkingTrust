@@ -60,6 +60,7 @@ Future<void> _saveEverything() async {
       provider: 'Amazon',
       issued: 'Aug 2024',
       credentialId: 'c-1',
+      certificateUrl: '',
       description: '',
     )),
     isTrue,

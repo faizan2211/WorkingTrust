@@ -588,10 +588,7 @@ class _FactRow extends StatelessWidget {
   }
 }
 
-/// One cell of the earnings grid: the small grey label, the figure under it.
-/// `highlight` is the teal treatment the available balance gets over the plain
-/// black figures.
-typedef _EarningsCell = ({String label, String value, bool highlight});
+typedef _EarningsCell = ({String label, String value, Color color});
 
 /// The four amounts the overview route totals for the account, with the
 /// transactions screen one tap away.
@@ -607,22 +604,22 @@ class _EarningsCard extends StatelessWidget {
       (
         label: 'Available for withdrawal',
         value: _money(overview.availableBalance),
-        highlight: true,
+        color: AppColors.secondary,
       ),
       (
         label: 'Work in progress',
         value: _money(overview.workInProgressAmount),
-        highlight: false,
+        color: AppColors.info,
       ),
       (
         label: 'In review',
         value: _money(overview.inReviewAmount),
-        highlight: false,
+        color: AppColors.primaryLight,
       ),
       (
         label: 'Payments being cleared',
         value: _money(overview.pendingWithdrawalsAmount),
-        highlight: false,
+        color: Color.lerp(AppColors.warning, AppColors.primaryDark, 0.35)!,
       ),
     ];
 
@@ -700,7 +697,7 @@ class _EarningsCellWidget extends StatelessWidget {
     final value = TextStyle(
       fontSize: 20,
       fontWeight: FontWeight.w700,
-      color: cell.highlight ? AppColors.primaryLight : AppColors.textPrimary,
+      color: cell.color,
     );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

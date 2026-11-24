@@ -14,26 +14,44 @@ void main() {
       expect(destination.arguments, 'task-42');
     });
 
-    test('opens the withdrawal settings tab', () {
+    test('opens admin-side project message notifications in chat', () {
       final destination = FcmPushService.destinationFor({
-        'type': 'WITHDRAWAL_PAID',
-        'href': '/settings?tab=withdrawals',
+        'type': 'CHAT_MESSAGE',
+        'href': '/admin/messages?task=task-42',
       });
 
-      expect(destination.route, RouteNames.settings);
-      expect(destination.arguments, 4);
+      expect(destination.route, RouteNames.projectChat);
+      expect(destination.arguments, 'task-42');
     });
 
-    test('opens withdrawal notices in the withdrawal settings tab', () {
+    test('opens withdrawal notices in transactions', () {
       for (final type in const [
         'WITHDRAWAL_REQUESTED',
         'WITHDRAWAL_PAID',
         'WITHDRAWAL_REJECTED',
       ]) {
         final destination = FcmPushService.destinationFor({'type': type});
-        expect(destination.route, RouteNames.settings, reason: type);
-        expect(destination.arguments, 4, reason: type);
+        expect(destination.route, RouteNames.transactions, reason: type);
       }
+    });
+
+    test('opens deposit and approved work payment notices in transactions', () {
+      for (final type in const [
+        'DEPOSIT_APPROVED',
+        'DEPOSIT_REJECTED',
+        'SUBMISSION_APPROVED',
+      ]) {
+        final destination = FcmPushService.destinationFor({'type': type});
+        expect(destination.route, RouteNames.transactions, reason: type);
+      }
+
+      expect(
+        FcmPushService.destinationFor({
+          'type': 'DEPOSIT_APPROVED',
+          'href': '/buy-bids',
+        }).route,
+        RouteNames.transactions,
+      );
     });
 
     test('opens security notices in security settings', () {
@@ -46,14 +64,7 @@ void main() {
       expect(destination.arguments, 1);
     });
 
-    test('maps financial, membership, report, and proposal notices', () {
-      expect(
-        FcmPushService.destinationFor({
-          'type': 'DEPOSIT_APPROVED',
-          'href': '/deposit',
-        }).route,
-        RouteNames.wallet,
-      );
+    test('maps membership, report, and proposal notices', () {
       expect(
         FcmPushService.destinationFor({'type': 'MEMBERSHIP_RENEWED'}).route,
         RouteNames.membershipPlan,

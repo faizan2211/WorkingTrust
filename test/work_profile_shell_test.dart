@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:working_trust/app/routes/app_routes.dart';
 import 'package:working_trust/app/routes/route_names.dart';
 import 'package:working_trust/app/theme/app_colors.dart';
+import 'package:working_trust/core/utils/link_opener.dart';
 import 'package:working_trust/core/widgets/app_text_field.dart';
 import 'package:working_trust/features/find_work/controller/find_work_controller.dart';
 import 'package:working_trust/features/find_work/screens/find_work_screen.dart';
@@ -10,6 +11,7 @@ import 'package:working_trust/features/home/screens/dashboard_screen.dart';
 import 'package:working_trust/features/home/screens/home_screen.dart';
 import 'package:working_trust/features/membership/screens/membership_plan_screen.dart';
 import 'package:working_trust/features/messages/screens/messages_screen.dart';
+import 'package:working_trust/features/profile/screens/add_portfolio_screen.dart';
 import 'package:working_trust/features/profile/controller/profile_controller.dart';
 import 'package:working_trust/features/profile/screens/profile_menu_screen.dart';
 import 'package:working_trust/features/profile/screens/profile_screen.dart';
@@ -420,6 +422,142 @@ void main() {
     expect(find.text('Skills'), findsOneWidget);
     expect(find.text('No skills added yet.'), findsOneWidget);
     expect(find.text('Certifications'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('profile portfolio links open and work history loads from API', (
+    tester,
+  ) async {
+    _backend.sectionRows['portfolio'] = [
+      {
+        'id': 'portfolio-1',
+        'userId': 'u1',
+        'title': 'Portfolio Site',
+        'imageUrl': 'https://cdn.example/portfolio.png',
+        'mediaType': 'image',
+        'linkUrl': 'https://portfolio.example',
+        'status': 'PUBLISHED',
+        'role': 'Designer',
+        'skills': '[]',
+        'description': 'A portfolio website.',
+      },
+    ];
+    _backend.workHistoryCompleted.add({
+      'id': 'assignment-complete',
+      'title': 'Brand Website',
+      'rating': 5,
+      'reviews': 1,
+      'description': 'Delivered a new brand website.',
+      'dateLabel': 'Completed Nov 1, 2026',
+      'amount': 180.0,
+      'priceLabel': 'Fixed Price',
+      'sortDate': '2026-11-01T10:00:00.000Z',
+    });
+    _backend.workHistoryInProgress.add({
+      'id': 'assignment-active',
+      'title': 'Mobile App Redesign',
+      'rating': null,
+      'reviews': 0,
+      'description': 'Redesigning the customer app.',
+      'dateLabel': 'Due Nov 20, 2026',
+      'amount': 240.0,
+      'priceLabel': 'Fixed Price',
+      'sortDate': '2026-11-02T10:00:00.000Z',
+    });
+
+    final previousLaunch = LinkOpener.launch;
+    final opened = <Uri>[];
+    LinkOpener.launch = (uri) async {
+      opened.add(uri);
+      return true;
+    };
+    addTearDown(() => LinkOpener.launch = previousLaunch);
+
+    await _pump(tester, const ProfileScreen());
+
+    expect(_backend.paths, contains('/api/profile/work-history'));
+    expect(find.text('Brand Website'), findsOneWidget);
+    expect(find.text('Delivered a new brand website.'), findsOneWidget);
+    expect(find.text('https://portfolio.example'), findsOneWidget);
+
+    await _tap(tester, find.text('https://portfolio.example'));
+    expect(opened.single.toString(), 'https://portfolio.example');
+
+    await _tap(tester, find.text('In Progress (1)'));
+    expect(find.text('Mobile App Redesign'), findsOneWidget);
+    expect(find.text('Redesigning the customer app.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('portfolio add link accepts only a full web URL', (tester) async {
+    await _pump(tester, const AddPortfolioScreen());
+
+    await _tap(tester, find.byTooltip('Add Link'));
+    final linkField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.hintText == 'Paste a full URL (https://...)',
+    );
+    await tester.enterText(linkField, 'portfolio.example');
+    await _tap(tester, find.text('Save'));
+    expect(
+      find.text('Enter a valid website URL starting with http:// or https://.'),
+      findsOneWidget,
+    );
+
+    await tester.enterText(linkField, 'https://portfolio.example');
+    await _tap(tester, find.text('Save'));
+    expect(find.text('https://portfolio.example'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('portfolio project can publish with a link and no file', (
+    tester,
+  ) async {
+    await ProfileController.instance.load();
+    await _pump(tester, const AddPortfolioScreen());
+
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.hintText ==
+                'Enter a brief but descriptive title.',
+      ),
+      'Portfolio Website',
+    );
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (widget) => widget is TextField && widget.decoration?.hintText == "Briefly describe the project's goals, your solution and the impact.",
+      ),
+      'A complete portfolio project published as a URL.',
+    );
+    await _tap(tester, find.byTooltip('Add Link'));
+    final linkField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField &&
+          widget.decoration?.hintText == 'Paste a full URL (https://...)',
+    );
+    await tester.enterText(linkField, 'https://portfolio.example/project');
+    await _tap(tester, find.text('Save'));
+    await _tap(tester, find.text('Publish'));
+
+    expect(_backend.paths, contains('/api/profile/portfolio'));
+    expect(
+      _backend.paths.where((path) => path == '/api/profile/portfolio/media'),
+      isEmpty,
+    );
+    expect(_backend.bodyFor('/api/profile/portfolio'), {
+      'title': 'Portfolio Website',
+      'role': '',
+      'skills': <String>[],
+      'description': 'A complete portfolio project published as a URL.',
+      'imageUrl': '',
+      'mediaType': 'link',
+      'linkUrl': 'https://portfolio.example/project',
+      'status': 'PUBLISHED',
+    });
+    expect(find.text('Portfolio Website published.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

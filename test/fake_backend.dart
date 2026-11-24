@@ -171,6 +171,9 @@ class FakeBackend {
   /// still outstanding.
   bool slowProfileRead = false;
 
+  final List<Map<String, dynamic>> workHistoryCompleted = [];
+  final List<Map<String, dynamic>> workHistoryInProgress = [];
+
   /// The account the `stored…` profile columns above belong to. The fake holds
   /// one `User` row, so a read for a different account must answer with nothing
   /// rather than hand over what another account saved.
@@ -886,6 +889,8 @@ class FakeBackend {
     profileReadBroken = false;
     profileReadMalformed = false;
     slowProfileRead = false;
+    workHistoryCompleted.clear();
+    workHistoryInProgress.clear();
     profileOwner = '';
     _rowSequence = 0;
     sectionRows.clear();
@@ -1195,6 +1200,18 @@ class FakeBackend {
               }
             : <String, dynamic>{},
       );
+    }
+
+    // Mirrors GET /api/profile/work-history: only assignments belonging to
+    // the signed-in user are returned.
+    if (path == '/api/profile/work-history' && method == 'GET') {
+      if (sessionRevoked || !_hasSession(request)) {
+        return _json(401, {'error': 'Unauthorized'});
+      }
+      return _json(200, {
+        'completed': workHistoryCompleted,
+        'inProgress': workHistoryInProgress,
+      });
     }
 
     // Mirrors the GET half of src/app/api/profile/route.ts: the selected columns
@@ -2465,6 +2482,16 @@ class FakeBackend {
         return null;
       default:
         final media = body['imageUrl'];
+        final link = body['linkUrl'];
+        final linkUri = link is String ? Uri.tryParse(link.trim()) : null;
+        final validWebLink =
+            linkUri != null &&
+            (linkUri.isScheme('http') || linkUri.isScheme('https')) &&
+            linkUri.host.isNotEmpty;
+        final linkIsAbsentOrValid =
+            link == null ||
+            (link is String && link.trim().isEmpty) ||
+            validWebLink;
         return _maybe(body, 'title', 70) &&
                 _maybe(body, 'role', 100) &&
                 _skillList(body['skills']) &&
@@ -2479,8 +2506,10 @@ class FakeBackend {
                   'music',
                 ]) &&
                 _maybe(body, 'linkUrl', 500) &&
+                linkIsAbsentOrValid &&
                 _oneOf(body, 'status', const ['DRAFT', 'PUBLISHED']) &&
-                (media is String && media.trim().isNotEmpty) &&
+                ((media is String && media.trim().isNotEmpty) ||
+                    validWebLink) &&
                 (body['title'] is String &&
                     (body['title'] as String).trim().length >= 2)
             ? null
@@ -3170,23 +3199,39 @@ class FakeBackend {
     });
   }
 
-  /// `GET /api/reports/my-stats` → `buildMyStats`, with the route's own clamp of
-  /// the two windows to 7, 15 or 30 days.
+  /// `GET /api/reports/my-stats` → `buildMyStats`, for calendar-date ranges.
   http.Response _myStats(http.Request request) {
     if (!_signedIn(request)) return _unauthorised();
     if (financeBroken) {
       return _json(500, {'error': 'Unable to load the statistics.'});
     }
     final params = request.url.queryParameters;
-    int window(String key, int fallback) {
-      final days = int.tryParse(params[key] ?? '');
-      return [7, 15, 30].contains(days) ? days! : fallback;
+    final today = DateTime.now();
+    DateTime calendarDate(String key, DateTime fallback) {
+      final value = params[key];
+      if (value == null) {
+        return DateTime(fallback.year, fallback.month, fallback.day);
+      }
+      final parsed = DateTime.tryParse(value);
+      if (parsed == null) {
+        return DateTime(fallback.year, fallback.month, fallback.day);
+      }
+      return DateTime(parsed.year, parsed.month, parsed.day);
     }
 
-    final proposalDays = window('proposalDays', 15);
-    final profileDays = window('profileDays', 7);
-    final now = DateTime.now().toUtc();
-    final proposalSince = now.subtract(Duration(days: proposalDays - 1));
+    final proposalSince = calendarDate(
+      'proposalStart',
+      today.subtract(const Duration(days: 14)),
+    );
+    final proposalUntil = calendarDate(
+      'proposalEnd',
+      today,
+    ).add(const Duration(days: 1));
+    final profileSince = calendarDate(
+      'profileStart',
+      today.subtract(const Duration(days: 6)),
+    );
+    final profileUntil = calendarDate('profileEnd', today);
     final twelveMonthsAgo = DateTime.now().subtract(const Duration(days: 365));
 
     final decided = assignments
@@ -3204,12 +3249,11 @@ class FakeBackend {
 
     // `buildProposalFunnel`: a pending bid only counts as viewed once the
     // client has written or the task became an assignment.
-    final recentBids = bids
-        .where(
-          (row) =>
-              !DateTime.parse('${row['createdAt']}').isBefore(proposalSince),
-        )
-        .toList();
+    final recentBids = bids.where((row) {
+      final created = DateTime.parse('${row['createdAt']}').toLocal();
+      return !created.isBefore(proposalSince) &&
+          created.isBefore(proposalUntil);
+    }).toList();
     final messaged = chatRows.entries
         .where(
           (entry) => entry.value.any((row) => row['senderId'] != sessionId),
@@ -3218,8 +3262,18 @@ class FakeBackend {
         .toSet();
     final assignmentByTask = <String, Map<String, dynamic>>{
       for (final row in assignments)
-        if (!DateTime.parse('${row['updatedAt']}').isBefore(proposalSince) ||
-            !DateTime.parse('${row['createdAt']}').isBefore(proposalSince))
+        if ((!DateTime.parse('${row['updatedAt']}')
+                    .toLocal()
+                    .isBefore(proposalSince) &&
+                DateTime.parse('${row['updatedAt']}')
+                    .toLocal()
+                    .isBefore(proposalUntil)) ||
+            (!DateTime.parse('${row['createdAt']}')
+                    .toLocal()
+                    .isBefore(proposalSince) &&
+                DateTime.parse('${row['createdAt']}')
+                    .toLocal()
+                    .isBefore(proposalUntil)))
           '${row['taskId']}': row,
     };
     bool hired(Map<String, dynamic> bid) =>
@@ -3236,13 +3290,11 @@ class FakeBackend {
 
     final series = <Map<String, dynamic>>[];
     var views = 0, impressions = 0, clicks = 0;
-    final start = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).subtract(Duration(days: profileDays - 1));
-    for (var day = 0; day < profileDays; day++) {
-      final date = start.add(Duration(days: day));
+    for (
+      var date = profileSince;
+      !date.isAfter(profileUntil);
+      date = date.add(const Duration(days: 1))
+    ) {
       final key =
           '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       final dayEvents = profileEvents.where((row) {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:working_trust/app/routes/app_routes.dart';
+import 'package:working_trust/app/theme/app_colors.dart';
 import 'package:working_trust/features/finance/controller/overview_controller.dart';
 import 'package:working_trust/features/finance/controller/stats_controller.dart';
 import 'package:working_trust/features/finance/controller/wallet_controller.dart';
@@ -83,6 +84,12 @@ void main() {
     expect(find.text(r'$230.00'), findsOneWidget);
     expect(find.text(r'$480.00'), findsOneWidget);
     expect(find.text(r'$400.00'), findsOneWidget);
+    final amountColors = [
+      for (final amount in [r'$1240.50', r'$230.00', r'$480.00', r'$400.00'])
+        tester.widget<Text>(find.text(amount)).style!.color,
+    ];
+    expect(amountColors.toSet(), hasLength(4));
+    expect(amountColors, isNot(contains(AppColors.textPrimary)));
     // A seller level and a level progress bar have no route behind them.
     expect(find.text('Level one'), findsNothing);
     expect(find.text('Next evaluation'), findsNothing);

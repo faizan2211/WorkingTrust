@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../core/network/network_exceptions.dart';
@@ -11,6 +13,8 @@ enum ChatStatus { idle, loading, ready, empty, error }
 
 /// One authorized project conversation, read from the backend.
 class ProjectChatController extends ChangeNotifier {
+  static const Duration _pollInterval = Duration(milliseconds: 2500);
+
   ProjectChatController(this.taskId);
 
   final String taskId;
@@ -23,6 +27,8 @@ class ProjectChatController extends ChangeNotifier {
   String _errorMessage = '';
   bool _loading = false;
   bool _sending = false;
+  bool _disposed = false;
+  Timer? _pollTimer;
 
   ChatStatus get status => _status;
   String get errorMessage => _errorMessage;
@@ -92,11 +98,17 @@ class ProjectChatController extends ChangeNotifier {
       return;
     }
     await load();
+    if (_disposed) return;
+    _pollTimer ??= Timer.periodic(_pollInterval, (_) {
+      if (!_sending) {
+        unawaited(load(silent: true));
+      }
+    });
     await clearUnread();
   }
 
   Future<void> load({bool silent = false}) async {
-    if (_loading) return;
+    if (_loading || _disposed) return;
     _loading = true;
     if (!silent && _chat == null) {
       _status = ChatStatus.loading;
@@ -116,7 +128,7 @@ class ProjectChatController extends ChangeNotifier {
       _fail(NetworkException('Could not load this conversation.'));
     } finally {
       _loading = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -165,6 +177,13 @@ class ProjectChatController extends ChangeNotifier {
       // The unread count is the shell's business; a lost PATCH only means the
       // bell still shows a number.
     }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   void _fail(NetworkException e) {

@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/routes/route_names.dart';
@@ -15,6 +16,7 @@ import '../../finance/controller/transactions_controller.dart';
 import '../../finance/controller/weekly_controller.dart';
 import '../../finance/models/json_read.dart';
 import '../../finance/models/transaction_feed.dart';
+import '../../finance/services/transaction_pdf_export.dart';
 import '../../finance/models/weekly_report.dart';
 import '../../finance/widgets/read_view.dart';
 import '../../settings/data/settings_data.dart';
@@ -43,8 +45,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   static const List<String> _downloads = [
     'Select Download',
     'Weekly summary',
-    'Monthly statement',
-    'All transactions',
+    'Transactions (PDF)',
   ];
 
   static const List<String> _quickFilters = [
@@ -382,7 +383,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         AppDropdown(
           value: _downloads.first,
           items: _downloads,
-          onChanged: _onDownload,
+          onChanged: busy || _downloadInFlight ? null : _onDownload,
           icon: null,
           filled: true,
         ),
@@ -410,23 +411,57 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   Future<void> _onDownload(String value) async {
     if (value == _downloads.first || _downloadInFlight) return;
-    if (value != 'Weekly summary') {
-      _note('The server has no file endpoint for $value.');
+    if (value == 'Transactions (PDF)') {
+      await _downloadTransactionsPdf();
       return;
     }
+    if (value != 'Weekly summary') return;
 
-    _downloadInFlight = true;
-    final text = await WeeklyController.instance.download(WeeklyScope.summary);
-    _downloadInFlight = false;
-    if (!mounted) return;
+    setState(() => _downloadInFlight = true);
+    try {
+      final text = await WeeklyController.instance.download(
+        WeeklyScope.summary,
+      );
+      if (!mounted) return;
 
-    final body = text?.trim();
-    if (body == null || body.isEmpty) {
-      final error = WeeklyController.instance.downloadError;
-      _note(error.isEmpty ? 'The server sent no weekly summary.' : error);
-      return;
+      final body = text?.trim();
+      if (body == null || body.isEmpty) {
+        final error = WeeklyController.instance.downloadError;
+        _note(error.isEmpty ? 'The server sent no weekly summary.' : error);
+        return;
+      }
+      await _showText(value, body);
+    } finally {
+      if (mounted) setState(() => _downloadInFlight = false);
     }
-    await _showText(value, body);
+  }
+
+  Future<void> _downloadTransactionsPdf() async {
+    setState(() => _downloadInFlight = true);
+    try {
+      final controller = TransactionsController.instance;
+      final allRows = await controller.fetchAllMatchingTransactions();
+      final rows = _narrow(allRows);
+      if (!mounted) return;
+      if (rows.isEmpty) {
+        _note('There are no transactions matching the selected filters.');
+        return;
+      }
+
+      final bytes = await TransactionPdfExport.build(rows);
+      final saved = await FilePicker.saveFile(
+        fileName: 'workingtrust-transactions.pdf',
+        bytes: bytes,
+        mimeType: 'application/pdf',
+        dialogTitle: 'Save transaction PDF',
+      );
+      if (!mounted || saved == null) return;
+      _note('Transaction PDF saved.');
+    } on Exception catch (error) {
+      if (mounted) _note('Could not save the transaction PDF: $error');
+    } finally {
+      if (mounted) setState(() => _downloadInFlight = false);
+    }
   }
 
   /// The website's own text file, shown as the server wrote it rather than

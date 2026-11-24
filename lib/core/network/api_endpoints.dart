@@ -77,6 +77,9 @@ class ApiEndpoints {
   static const String profileEmployment = '/api/profile/employment';
   static const String profilePortfolio = '/api/profile/portfolio';
 
+  /// Completed and active assignments for the authenticated profile.
+  static const String profileWorkHistory = '/api/profile/work-history';
+
   /// General attachments for proposals. Accepts images, PDF and Office files
   /// up to 10 MB, returning `{url, filename, size}`.
   static const String upload = '/api/upload';
@@ -195,11 +198,12 @@ class ApiEndpoints {
 
   /// My Stats, as the website computes them. `GET` answers `200 {twelveMonthEarnings,
   /// jobSuccessScore, connects, nextMonthConnects, proposalFunnel, profileViews,
-  /// impressions, clicks, profileSeries}`. `proposalDays` and `profileDays` take
-  /// `7`, `15` or `30`; anything else falls back to the route's own default, so a
-  /// window nobody offered is never pretended. The figures are the server's — the
-  /// app never recomputes a funnel or a score. Refused with 401 without the
-  /// cookie, and [reportsMyStats] is the only source for these numbers.
+  /// impressions, clicks, profileSeries}`. Each chart accepts a required start
+  /// date and optional inclusive end date (`proposalStart`, `proposalEnd`,
+  /// `profileStart`, `profileEnd`); an omitted end means today. The figures are
+  /// the server's — the app never recomputes a funnel or a score. Refused with
+  /// 401 without the cookie, and [reportsMyStats] is the only source for these
+  /// numbers.
   static const String reportsMyStats = '/api/reports/my-stats';
 
   /// The weekly report. `GET` answers the freelancer summary `{since, earnings,

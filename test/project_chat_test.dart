@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:working_trust/core/utils/link_opener.dart';
 import 'package:working_trust/features/messages/controller/project_chat_controller.dart';
+import 'package:working_trust/features/messages/models/chat_stamps.dart';
 import 'package:working_trust/features/messages/models/project_chat.dart';
 import 'package:working_trust/features/messages/models/project_conversation.dart';
 import 'package:working_trust/features/messages/screens/messages_screen.dart';
@@ -104,6 +105,19 @@ void main() {
       expect(conversation.unreadCount, 3);
     });
 
+    test('converts the last-message timestamp to device local time', () {
+      const timestamp = '2026-11-12T08:34:00.000Z';
+      final expectedLocal = DateTime.parse(timestamp).toLocal();
+      final conversation = ProjectConversation.fromJson({
+        ..._conversationRow(),
+        'lastMessageAt': timestamp,
+      });
+
+      expect(conversation.lastMessageAt, expectedLocal);
+      expect(conversation.lastMessageAt!.isUtc, isFalse);
+      expect(chatStamp(conversation.lastMessageAt!), chatStamp(expectedLocal));
+    });
+
     testWidgets('loads conversation rows from the dedicated endpoint', (
       tester,
     ) async {
@@ -202,6 +216,35 @@ void main() {
       expect(find.text('No messages yet on this project.'), findsOneWidget);
       expect(_composer(), findsOneWidget);
     });
+
+    testWidgets(
+      'an open conversation receives messages without manual refresh',
+      (tester) async {
+        final controller = ProjectChatController('t9');
+        await controller.open();
+        expect(controller.messages, hasLength(2));
+
+        _backend.chatRows['t9']!.add({
+          ...FakeBackend.chatRow(
+            'A new message from the client.',
+            senderId: 'admin1',
+            senderName: 'Hana',
+            senderRole: 'ADMIN',
+            ago: Duration.zero,
+          ),
+          'id': 'incoming-1',
+        });
+
+        await tester.pump(const Duration(milliseconds: 2500));
+        await tester.pump();
+
+        expect(
+          controller.messages.map((message) => message.body),
+          contains('A new message from the client.'),
+        );
+        controller.dispose();
+      },
+    );
 
     testWidgets('an unread thread is cleared on the server, once', (
       tester,
@@ -306,6 +349,23 @@ void main() {
       expect(thread.messages.first.displayName, 'WorkingTrust');
       expect(thread.messages.first.fromClient, isFalse);
       expect(thread.messages.last.id, isEmpty);
+    });
+
+    test('converts message timestamps to device local time', () {
+      const timestamp = '2026-11-12T08:34:00.000Z';
+      final expectedLocal = DateTime.parse(timestamp).toLocal();
+      final thread = Chat.fromJson({
+        'projectTitle': 'Logo',
+        'clientName': 'Hana',
+        'messages': [
+          {'body': 'Hello', 'createdAt': timestamp},
+        ],
+      });
+      final message = thread.messages.single;
+
+      expect(message.createdAt, expectedLocal);
+      expect(message.createdAt.isUtc, isFalse);
+      expect(chatTimeLabel(message.createdAt), chatTimeLabel(expectedLocal));
     });
   });
 
@@ -432,6 +492,32 @@ void main() {
   });
 
   group('attachments', () {
+    testWidgets('a URL in the message body opens when tapped', (tester) async {
+      const url = 'https://example.com/project';
+      Uri? opened;
+      LinkOpener.launch = (Uri uri) async {
+        opened = uri;
+        return true;
+      };
+      _backend.seedChat(
+        't9',
+        messages: [
+          FakeBackend.chatRow(
+            'Here is the project link: $url.',
+            senderId: 'admin1',
+            senderName: 'Hana',
+            senderRole: 'ADMIN',
+          ),
+        ],
+      );
+      await _pumpChat(tester);
+
+      await tester.tap(find.text(url));
+      await _settle(tester);
+
+      expect(opened, Uri.parse(url));
+    });
+
     testWidgets('an existing link opens outside the app', (tester) async {
       Uri? opened;
       LinkOpener.launch = (Uri uri) async {

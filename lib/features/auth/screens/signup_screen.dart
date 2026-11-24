@@ -606,7 +606,8 @@ class _DropdownField extends StatelessWidget {
   }
 }
 
-/// Selectable chips for the categories the backend lists at /api/categories.
+/// The categories the backend lists at /api/categories, collapsed into a
+/// dropdown that opens a checkbox menu so the form stays compact.
 class _InterestsField extends StatelessWidget {
   final List<WorkCategory> categories;
   final Set<String> selected;
@@ -623,6 +624,8 @@ class _InterestsField extends StatelessWidget {
     required this.onToggle,
     required this.onRetry,
   });
+
+  static const String _hint = 'Select Fields To Work In';
 
   @override
   Widget build(BuildContext context) {
@@ -658,17 +661,63 @@ class _InterestsField extends StatelessWidget {
             ),
           )
         else
-          Wrap(
-            spacing: AppDimensions.sm,
-            runSpacing: AppDimensions.sm,
-            children: [
-              for (final category in categories)
-                AppTag(
-                  category.name,
-                  selected: selected.contains(category.slug),
-                  onTap: () => onToggle(category.slug),
+          Tooltip(
+            message: 'Choose fields',
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _openMenu(context),
+                borderRadius: BorderRadius.circular(30),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(
+                      color: error.isNotEmpty
+                          ? AppColors.error
+                          : AppColors.border,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.category_outlined,
+                        size: 20,
+                        color: AppColors.textHint,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: selected.isEmpty
+                            ? const Text(
+                                _hint,
+                                style: TextStyle(
+                                  color: AppColors.textHint,
+                                  fontSize: 14,
+                                ),
+                              )
+                            : Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final category in categories)
+                                    if (selected.contains(category.slug))
+                                      AppTag(category.name, selected: true),
+                                ],
+                              ),
+                      ),
+                      const Icon(
+                        Icons.keyboard_arrow_down,
+                        color: AppColors.textHint,
+                      ),
+                    ],
+                  ),
                 ),
-            ],
+              ),
+            ),
           ),
         if (error.isNotEmpty)
           Padding(
@@ -679,6 +728,91 @@ class _InterestsField extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+
+  /// The sheet reads the same [selected] set the parent mutates through
+  /// [onToggle], so [StatefulBuilder] repainting it reflects each change.
+  Future<void> _openMenu(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: StatefulBuilder(
+          builder: (context, setSheetState) => Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Choose your fields',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(sheetContext),
+                      child: const Text(
+                        'Done',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Flexible(
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: [
+                      for (final category in categories)
+                        CheckboxListTile(
+                          value: selected.contains(category.slug),
+                          activeColor: AppColors.primary,
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                          title: Text(
+                            category.name,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          subtitle: category.description == null
+                              ? null
+                              : Text(
+                                  category.description!,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                          onChanged: (_) {
+                            onToggle(category.slug);
+                            setSheetState(() {});
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

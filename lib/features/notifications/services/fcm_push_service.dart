@@ -177,7 +177,7 @@ class FcmPushService {
     final type = data['type'] ?? '';
     final href = Uri.tryParse(data['href'] ?? '');
 
-    if (href?.path == '/messages') {
+    if (href?.path == '/messages' || href?.path == '/admin/messages') {
       final taskId = href?.queryParameters['task'];
       if (taskId != null && taskId.isNotEmpty) {
         return PushDestination(RouteNames.projectChat, arguments: taskId);
@@ -188,8 +188,11 @@ class FcmPushService {
             href?.queryParameters['tab'] == 'withdrawals') ||
         type == 'WITHDRAWAL_REQUESTED' ||
         type == 'WITHDRAWAL_PAID' ||
-        type == 'WITHDRAWAL_REJECTED') {
-      return const PushDestination(RouteNames.settings, arguments: 4);
+        type == 'WITHDRAWAL_REJECTED' ||
+        type == 'DEPOSIT_APPROVED' ||
+        type == 'DEPOSIT_REJECTED' ||
+        type == 'SUBMISSION_APPROVED') {
+      return const PushDestination(RouteNames.transactions);
     }
 
     return switch (type) {
@@ -198,12 +201,10 @@ class FcmPushService {
       'SUBMISSION_REJECTED' => const PushDestination(RouteNames.proposals),
       'MEMBERSHIP_RENEWED' => const PushDestination(RouteNames.membershipPlan),
       'SECURITY' => const PushDestination(RouteNames.settings, arguments: 1),
-      'DEPOSIT_APPROVED' ||
-      'DEPOSIT_REJECTED' ||
-      'SUBMISSION_APPROVED' => const PushDestination(RouteNames.wallet),
       'REPORT_UPDATE' ||
       'ACCOUNT_SUSPENDED' => const PushDestination(RouteNames.yourReports),
       _ => switch (href?.path) {
+        '/buy-bids' => const PushDestination(RouteNames.transactions),
         '/wallet' || '/deposit' => const PushDestination(RouteNames.wallet),
         '/my-work' => const PushDestination(RouteNames.proposals),
         '/report' => const PushDestination(RouteNames.yourReports),

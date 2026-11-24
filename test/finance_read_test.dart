@@ -361,6 +361,13 @@ void main() {
       expect(beyond.rows, isEmpty);
     });
 
+    test('fetches all rows for the current transaction filters', () async {
+      final rows = await ReportsService.instance.fetchAllTransactions();
+
+      expect(rows, hasLength(6));
+      expect(_backend.requests.last.url.queryParameters['limit'], '200');
+    });
+
     test(
       'the client list is the server\'s and narrows the same query',
       () async {
@@ -411,38 +418,52 @@ void main() {
       },
     );
 
-    test('a window change re-reads the route with the new parameter', () async {
-      await StatsController.instance.setProfileDays(7);
-      await StatsController.instance.load(force: true);
-      expect(_backend.requests.last.url.queryParameters['profileDays'], '7');
+    test(
+      'a calendar range re-reads the route with the selected dates',
+      () async {
+        final today = DateTime.now();
+        final end = DateTime(today.year, today.month, today.day);
+        final start = end.subtract(const Duration(days: 29));
+        String dateParam(DateTime date) =>
+            '${date.year.toString().padLeft(4, '0')}-'
+            '${date.month.toString().padLeft(2, '0')}-'
+            '${date.day.toString().padLeft(2, '0')}';
+        final readsBeforeChange = _backend.countOf('/api/reports/my-stats');
+        await StatsController.instance.setProfileRange(start, end);
+        expect(
+          _backend.requests.last.url.queryParameters['profileStart'],
+          dateParam(start),
+        );
+        expect(
+          _backend.requests.last.url.queryParameters['profileEnd'],
+          dateParam(end),
+        );
+        expect(StatsController.instance.value.profileSeries, hasLength(30));
+        expect(
+          _backend.countOf('/api/reports/my-stats'),
+          greaterThan(readsBeforeChange),
+        );
+      },
+    );
 
-      final readsBeforeChange = _backend.countOf('/api/reports/my-stats');
-      await StatsController.instance.setProfileDays(30);
-      expect(_backend.requests.last.url.queryParameters['profileDays'], '30');
-      expect(StatsController.instance.value.profileSeries, hasLength(30));
-      // The window change is what asked again: the route was read for it,
-      // never recalculated on the device.
+    test('an omitted calendar end date includes through today', () async {
+      await StatsController.instance.load(force: true);
+      final today = DateTime.now();
+      final start = DateTime(
+        today.year,
+        today.month,
+        today.day,
+      ).subtract(const Duration(days: 6));
+      await StatsController.instance.setProfileRange(start, null);
       expect(
-        _backend.countOf('/api/reports/my-stats'),
-        greaterThan(readsBeforeChange),
+        _backend.requests.last.url.queryParameters.containsKey('profileEnd'),
+        isFalse,
       );
-    });
-
-    test('the profile window counts only events inside it', () async {
-      // The window is a setting the controller keeps, so a test that needs
-      // seven days asks for it rather than trusting the last reader's value.
-      await StatsController.instance.load(force: true);
-      await StatsController.instance.setProfileDays(7);
-      await StatsController.instance.load(force: true);
-      expect(_backend.requests.last.url.queryParameters['profileDays'], '7');
       final stats = StatsController.instance.value;
 
-      // Twelve days of activity were filed; the seeded 12-day-old view is out.
       expect(stats.profileViews, 3);
       expect(stats.impressions, 5);
       expect(stats.clicks, 2);
-      // The series is that same window day by day: seven days, oldest first,
-      // adding up to the count the route reported rather than a wider range.
       expect(stats.profileSeries, hasLength(7));
       expect(stats.profileSeries.first.views, 0);
       expect(
@@ -450,6 +471,26 @@ void main() {
         stats.profileViews,
       );
     });
+
+    test(
+      'an explicit date range includes both selected calendar days',
+      () async {
+        final today = DateTime.now();
+        final end = DateTime(
+          today.year,
+          today.month,
+          today.day,
+        ).subtract(const Duration(days: 2));
+        final start = end.subtract(const Duration(days: 1));
+        await StatsController.instance.setProfileRange(start, end);
+
+        final stats = StatsController.instance.value;
+        expect(stats.profileSeries, hasLength(2));
+        expect(stats.profileViews, 0);
+        expect(stats.impressions, 3);
+        expect(stats.clicks, 0);
+      },
+    );
 
     test('an account with no decided job has no score, not a zero', () async {
       _backend.assignments.removeWhere(
@@ -463,7 +504,24 @@ void main() {
 
     test('the proposal funnel is the route\'s count of the bids', () async {
       _backend.seedProposalHistory();
+      final today = DateTime.now();
+      await StatsController.instance.setProposalRange(
+        DateTime(
+          today.year,
+          today.month,
+          today.day,
+        ).subtract(const Duration(days: 14)),
+        null,
+      );
       await StatsController.instance.load();
+      expect(
+        _backend.requests.last.url.queryParameters.containsKey('proposalStart'),
+        isTrue,
+      );
+      expect(
+        _backend.requests.last.url.queryParameters.containsKey('proposalEnd'),
+        isFalse,
+      );
       final funnel = StatsController.instance.value.funnel;
 
       // pb4 is sixteen days old and falls outside the fifteen-day window.

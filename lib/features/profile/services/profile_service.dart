@@ -74,6 +74,7 @@ class ProfileService {
               // into a date on the next save.
               issued: _dateText(row['issuedAt']),
               credentialId: _asText(row['certificateId']),
+              certificateUrl: _asText(row['certificateUrl']),
               description: _asText(row['description']),
             ),
       ],
@@ -96,6 +97,20 @@ class ProfileService {
               description: _asText(row['description']),
             ),
       ],
+    );
+  }
+
+  /// Completed and active assignments belonging to the signed-in account.
+  Future<WorkHistory> fetchWorkHistory() async {
+    final response = await _apiClient.get(ApiEndpoints.profileWorkHistory);
+    if (response is! Map<String, dynamic> ||
+        response['completed'] is! List ||
+        response['inProgress'] is! List) {
+      throw NetworkException('The server did not return work history.');
+    }
+    return (
+      completed: _workHistoryRows(response['completed'], inProgress: false),
+      inProgress: _workHistoryRows(response['inProgress'], inProgress: true),
     );
   }
 
@@ -234,6 +249,7 @@ class ProfileService {
       // be stored as an invalid date.
       'issuedAt': isoDateFromText(row.issued) ?? '',
       'certificateId': row.credentialId,
+      'certificateUrl': row.certificateUrl,
       'description': row.description,
     };
     return (
@@ -244,8 +260,31 @@ class ProfileService {
       provider: row.provider,
       issued: row.issued,
       credentialId: row.credentialId,
+      certificateUrl: row.certificateUrl,
       description: row.description,
     );
+  }
+
+  Future<String> uploadCertificationProof(
+    Uint8List bytes, {
+    required String filename,
+    required String mimeType,
+  }) async {
+    final response = await _apiClient.postFile(
+      ApiEndpoints.upload,
+      field: 'file',
+      bytes: bytes,
+      filename: filename,
+      mimeType: mimeType,
+    );
+    if (!response.isSuccess) {
+      throw NetworkException(response.message, statusCode: response.statusCode);
+    }
+    final url = response.json?['url'];
+    if (url is! String || url.isEmpty) {
+      throw NetworkException('The server did not return the proof image URL.');
+    }
+    return url;
   }
 
   Future<void> removeCertification(Certification row) =>
@@ -382,6 +421,39 @@ class ProfileService {
       description: _asText(row['description']),
     );
   }
+
+  List<WorkHistoryJob> _workHistoryRows(
+    Object? value, {
+    required bool inProgress,
+  }) => [
+    if (value is List)
+      for (final row in value)
+        if (row is Map<String, dynamic> &&
+            _asText(row['id']).isNotEmpty &&
+            _asText(row['title']).isNotEmpty &&
+            row['sortDate'] is String &&
+            DateTime.tryParse(row['sortDate'] as String) != null &&
+            row['amount'] is num &&
+            row['dateLabel'] is String &&
+            row['description'] is String &&
+            row['priceLabel'] is String)
+          (
+            id: _asText(row['id']),
+            title: _asText(row['title']),
+            rating: row['rating'] is num
+                ? (row['rating'] as num).toDouble()
+                : null,
+            reviews: row['reviews'] is num
+                ? (row['reviews'] as num).toInt()
+                : 0,
+            period: _asText(row['dateLabel']),
+            review: _asText(row['description']),
+            amount: (row['amount'] as num).toDouble(),
+            pricing: _asText(row['priceLabel']),
+            inProgress: inProgress,
+            sortDate: DateTime.parse(row['sortDate'] as String).toLocal(),
+          ),
+  ];
 
   /// A row is only useful if the backend gave it an id: without one it could
   /// never be edited or removed again from this device.

@@ -57,6 +57,7 @@ const _certifications = <Certification>[
     provider: 'Kamyab Freelancer Program (KFP)',
     issued: 'August 2025',
     credentialId: 'JCX31196',
+    certificateUrl: '',
     description: 'A program on research-led interface design.',
   ),
 ];
@@ -167,6 +168,7 @@ void main() {
           'provider': row.provider,
           'issuedAt': isoDateFromText(row.issued),
           'certificateId': row.credentialId,
+          'certificateUrl': row.certificateUrl,
           'description': row.description,
         },
     ]);
@@ -224,6 +226,7 @@ void main() {
       'provider': 'Amazon',
       'issuedAt': '2026-03-01',
       'certificateId': 'AWS-99',
+      'certificateUrl': '',
       'description': '',
     });
     expect(_backend.countOf('/api/profile/certifications'), 1);

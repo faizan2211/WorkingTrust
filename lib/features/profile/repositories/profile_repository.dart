@@ -10,6 +10,8 @@ class ProfileRepository {
   /// The whole saved profile of the signed-in account, in one read.
   Future<ProfileSnapshot> fetchProfile() => _profileService.fetchProfile();
 
+  Future<WorkHistory> fetchWorkHistory() => _profileService.fetchWorkHistory();
+
   Future<({String name, String avatarUrl})> save({
     required String name,
     String title = '',
@@ -58,6 +60,16 @@ class ProfileRepository {
 
   Future<Certification> saveCertification(Certification row) =>
       _profileService.saveCertification(row);
+
+  Future<String> uploadCertificationProof(
+    Uint8List bytes, {
+    required String filename,
+    required String mimeType,
+  }) => _profileService.uploadCertificationProof(
+    bytes,
+    filename: filename,
+    mimeType: mimeType,
+  );
 
   Future<void> removeCertification(Certification row) =>
       _profileService.removeCertification(row);

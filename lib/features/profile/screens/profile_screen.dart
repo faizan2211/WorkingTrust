@@ -520,7 +520,8 @@ class _PortfolioTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
+            AspectRatio(
+              aspectRatio: 16 / 9,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -545,13 +546,45 @@ class _PortfolioTile extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.all(AppDimensions.sm),
-              child: Text(
-                item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTextStyles.bodyMedium.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (item.link.trim().isNotEmpty) ...[
+                    const SizedBox(height: AppDimensions.xs),
+                    InkWell(
+                      onTap: () => _openProjectLink(context),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.open_in_new,
+                            size: AppDimensions.iconSm,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: AppDimensions.xs),
+                          Expanded(
+                            child: Text(
+                              item.link,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTextStyles.bodySmall.copyWith(
+                                color: AppColors.primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ],
@@ -595,6 +628,14 @@ class _PortfolioTile extends StatelessWidget {
 
   Future<void> _openDocument(BuildContext context) async {
     final failure = await LinkOpener.open(item.image);
+    if (failure == null || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(failure), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  Future<void> _openProjectLink(BuildContext context) async {
+    final failure = await LinkOpener.open(item.link);
     if (failure == null || !context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(failure), behavior: SnackBarBehavior.floating),
@@ -650,12 +691,14 @@ class _SkillTile extends StatelessWidget {
 /// A section's own empty state, sized like the tiles it stands in for.
 class _EmptyTile extends StatelessWidget {
   final String text;
+  final VoidCallback? onTap;
 
-  const _EmptyTile(this.text);
+  const _EmptyTile(this.text, {this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return AppCard(
+      onTap: onTap,
       padding: const EdgeInsets.symmetric(
         horizontal: AppDimensions.sm,
         vertical: AppDimensions.md,
@@ -676,18 +719,30 @@ class _WorkHistorySection extends StatefulWidget {
 }
 
 class _WorkHistorySectionState extends State<_WorkHistorySection> {
-  static const List<String> _statuses = ['Complete', 'In Progress'];
-
   int _status = 0;
+  bool _newestFirst = true;
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: ProfileController.instance,
       builder: (context, _) {
-        final jobs = ProfileController.instance.workHistory.where(
-          (item) => item.inProgress == (_status == 1),
-        );
+        final profile = ProfileController.instance;
+        final jobs =
+            profile.workHistory
+                .where((item) => item.inProgress == (_status == 1))
+                .toList()
+              ..sort(
+                (a, b) => _newestFirst
+                    ? b.sortDate.compareTo(a.sortDate)
+                    : a.sortDate.compareTo(b.sortDate),
+              );
+        final completedCount = profile.workHistory
+            .where((item) => !item.inProgress)
+            .length;
+        final inProgressCount = profile.workHistory
+            .where((item) => item.inProgress)
+            .length;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -699,14 +754,23 @@ class _WorkHistorySectionState extends State<_WorkHistorySection> {
               spacing: AppDimensions.sm,
               runSpacing: AppDimensions.sm,
               children: [
-                AppTag('Most Recent', icon: Icons.swap_vert, onTap: () {}),
-                for (var i = 0; i < _statuses.length; i++)
-                  AppTag(
-                    _statuses[i],
-                    selected: _status == i,
-                    highlight: _status == i,
-                    onTap: () => setState(() => _status = i),
-                  ),
+                AppTag(
+                  _newestFirst ? 'Most Recent' : 'Oldest First',
+                  icon: Icons.swap_vert,
+                  onTap: () => setState(() => _newestFirst = !_newestFirst),
+                ),
+                AppTag(
+                  'Complete Jobs ($completedCount)',
+                  selected: _status == 0,
+                  highlight: _status == 0,
+                  onTap: () => setState(() => _status = 0),
+                ),
+                AppTag(
+                  'In Progress ($inProgressCount)',
+                  selected: _status == 1,
+                  highlight: _status == 1,
+                  onTap: () => setState(() => _status = 1),
+                ),
               ],
             ),
             const SizedBox(height: AppDimensions.md),
@@ -715,10 +779,33 @@ class _WorkHistorySectionState extends State<_WorkHistorySection> {
                 padding: const EdgeInsets.only(bottom: AppDimensions.md),
                 child: _WorkCard(job: job),
               ),
-            if (jobs.isEmpty)
+            if (jobs.isEmpty &&
+                profile.isWorkHistoryLoading &&
+                profile.workHistory.isEmpty)
               const Padding(
-                padding: EdgeInsets.only(bottom: AppDimensions.md),
-                child: _EmptyTile('No completed projects yet.'),
+                padding: EdgeInsets.all(AppDimensions.lg),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            if (jobs.isEmpty &&
+                !profile.isWorkHistoryLoading &&
+                profile.workHistoryErrorMessage.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppDimensions.md),
+                child: _EmptyTile(
+                  '${profile.workHistoryErrorMessage} Tap to retry.',
+                  onTap: profile.refreshWorkHistory,
+                ),
+              ),
+            if (jobs.isEmpty &&
+                !profile.isWorkHistoryLoading &&
+                profile.workHistoryErrorMessage.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppDimensions.md),
+                child: _EmptyTile(
+                  _status == 0
+                      ? 'No completed projects yet.'
+                      : 'No active projects yet.',
+                ),
               ),
           ],
         );
@@ -728,17 +815,7 @@ class _WorkHistorySectionState extends State<_WorkHistorySection> {
 }
 
 class _WorkCard extends StatelessWidget {
-  final ({
-    String title,
-    double rating,
-    int reviews,
-    String period,
-    String review,
-    String amount,
-    String pricing,
-    bool inProgress,
-  })
-  job;
+  final WorkHistoryJob job;
 
   const _WorkCard({required this.job});
 
@@ -765,19 +842,22 @@ class _WorkCard extends StatelessWidget {
                   const SizedBox(height: AppDimensions.xs),
                   Row(
                     children: [
-                      const Icon(
-                        Icons.star_rounded,
-                        size: 16,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        '${job.rating.toStringAsFixed(1)} (${job.reviews} reviews)',
-                        style: AppTextStyles.bodySmall.copyWith(
-                          color: AppColors.textSecondary,
+                      if (job.rating != null) ...[
+                        const Icon(
+                          Icons.star_rounded,
+                          size: 16,
+                          color: AppColors.primary,
                         ),
-                      ),
-                      const SizedBox(width: AppDimensions.sm),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${job.rating!.toStringAsFixed(1)} '
+                          '(${job.reviews} review${job.reviews == 1 ? '' : 's'})',
+                          style: AppTextStyles.bodySmall.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(width: AppDimensions.sm),
+                      ],
                       Flexible(
                         child: Text(
                           job.period,
@@ -798,7 +878,7 @@ class _WorkCard extends StatelessWidget {
                     : CrossAxisAlignment.start,
                 children: [
                   Text(
-                    job.amount,
+                    '\$${job.amount.toStringAsFixed(2)}',
                     style: AppTextStyles.bodyLarge.copyWith(
                       fontWeight: FontWeight.w700,
                     ),

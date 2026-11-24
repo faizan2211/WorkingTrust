@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../app/theme/app_text_styles.dart';
+import '../../../core/utils/file_selection_service.dart';
+import '../../../core/utils/link_opener.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_tag.dart';
 import '../../../core/widgets/app_text_field.dart';
@@ -11,6 +14,12 @@ import '../../../core/widgets/icon_badge.dart';
 import '../controller/profile_controller.dart';
 import '../models/profile_entries.dart';
 import 'profile_form_dialog.dart';
+
+typedef _CertificationProof = ({
+  Uint8List bytes,
+  String filename,
+  String mimeType,
+});
 
 /// Certifications and Employment work. They share a card layout but are two
 /// separate sections, each with its own add control and per-card remove.
@@ -59,6 +68,8 @@ class _ExperienceSectionsState extends State<ExperienceSections> {
   Future<void> _certificationForm([int index = -1]) async {
     final profile = ProfileController.instance;
     final entry = index < 0 ? null : profile.certifications[index];
+    _CertificationProof? selectedProof;
+    var removeExistingProof = false;
     _certTitle.text = entry?.title ?? '';
     _certProvider.text = entry?.provider ?? '';
     _certIssued.text = entry?.issued ?? '';
@@ -98,6 +109,14 @@ class _ExperienceSectionsState extends State<ExperienceSections> {
           controller: _certDescription,
           maxLines: 3,
         ),
+        const SizedBox(height: AppDimensions.sm),
+        _CertificationProofPicker(
+          proofUrl: entry?.certificateUrl ?? '',
+          onChanged: (proof, removeExisting) {
+            selectedProof = proof;
+            removeExistingProof = removeExisting;
+          },
+        ),
       ],
       removable: entry != null,
     );
@@ -108,14 +127,23 @@ class _ExperienceSectionsState extends State<ExperienceSections> {
     }
     if (result != ProfileFormResult.save) return;
     _report(
-      await profile.saveCertification((
-        id: entry?.id ?? '',
-        title: _certTitle.text.trim(),
-        provider: _certProvider.text.trim(),
-        issued: _certIssued.text.trim(),
-        credentialId: _certId.text.trim(),
-        description: _certDescription.text.trim(),
-      ), index: index),
+      await profile.saveCertification(
+        (
+          id: entry?.id ?? '',
+          title: _certTitle.text.trim(),
+          provider: _certProvider.text.trim(),
+          issued: _certIssued.text.trim(),
+          credentialId: _certId.text.trim(),
+          certificateUrl: removeExistingProof
+              ? ''
+              : entry?.certificateUrl ?? '',
+          description: _certDescription.text.trim(),
+        ),
+        index: index,
+        proofBytes: selectedProof?.bytes,
+        proofFilename: selectedProof?.filename ?? '',
+        proofMimeType: selectedProof?.mimeType ?? '',
+      ),
     );
   }
 
@@ -198,6 +226,12 @@ class _ExperienceSectionsState extends State<ExperienceSections> {
     _report(await ProfileController.instance.removeEmployment(index));
   }
 
+  Future<void> _openCertificationProof(String url) async {
+    final failure = await LinkOpener.open(url);
+    if (failure == null || !mounted) return;
+    _note(failure);
+  }
+
   /// A row the route refused never reaches the profile, so the only sign
   /// anything went wrong is the server's own wording.
   void _report(bool saved) {
@@ -229,6 +263,10 @@ class _ExperienceSectionsState extends State<ExperienceSections> {
                     'Issued ${profile.certifications[index].issued}'
                     '${profile.certifications[index].credentialId.isEmpty ? '' : ' • ID ${profile.certifications[index].credentialId}'}',
                 description: profile.certifications[index].description,
+                proofUrl: profile.certifications[index].certificateUrl,
+                onProofTap: () => _openCertificationProof(
+                  profile.certifications[index].certificateUrl,
+                ),
                 onEdit: () => _certificationForm(index),
                 onRemove: () => _removeCertification(index),
               ),
@@ -434,6 +472,8 @@ class _ExperienceCard extends StatelessWidget {
   final String subtitle;
   final String meta;
   final String description;
+  final String proofUrl;
+  final VoidCallback? onProofTap;
   final VoidCallback onEdit;
   final VoidCallback onRemove;
 
@@ -443,6 +483,8 @@ class _ExperienceCard extends StatelessWidget {
     required this.subtitle,
     required this.meta,
     required this.description,
+    this.proofUrl = '',
+    this.onProofTap,
     required this.onEdit,
     required this.onRemove,
   });
@@ -511,8 +553,216 @@ class _ExperienceCard extends StatelessWidget {
               ),
             ),
           ],
+          if (proofUrl.isNotEmpty && onProofTap != null) ...[
+            const SizedBox(height: AppDimensions.sm),
+            InkWell(
+              onTap: onProofTap,
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.verified_outlined,
+                    color: AppColors.primary,
+                    size: AppDimensions.iconSm,
+                  ),
+                  const SizedBox(width: AppDimensions.xs),
+                  Expanded(
+                    child: Text(
+                      'View certification proof',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.primary,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.open_in_new,
+                    color: AppColors.primary,
+                    size: AppDimensions.iconSm,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class _CertificationProofPicker extends StatefulWidget {
+  final String proofUrl;
+  final void Function(_CertificationProof? proof, bool removeExisting)
+  onChanged;
+
+  const _CertificationProofPicker({
+    required this.proofUrl,
+    required this.onChanged,
+  });
+
+  @override
+  State<_CertificationProofPicker> createState() =>
+      _CertificationProofPickerState();
+}
+
+class _CertificationProofPickerState extends State<_CertificationProofPicker> {
+  _CertificationProof? _selected;
+  bool _removeExisting = false;
+
+  Future<void> _pickProof() async {
+    try {
+      final files = await FileSelectionService.pick(
+        extensions: const ['jpg', 'jpeg', 'png', 'webp'],
+      );
+      if (files.isEmpty) return;
+      final file = files.single;
+      if (file.bytes.length > 10 * 1024 * 1024) {
+        _note('Proof images must be 10 MB or smaller.');
+        return;
+      }
+      setState(() {
+        _selected = (
+          bytes: file.bytes,
+          filename: file.name,
+          mimeType: file.mimeType,
+        );
+        _removeExisting = false;
+      });
+      widget.onChanged(_selected, false);
+    } on PlatformException {
+      _note('This device could not open the file picker.');
+    } on FormatException catch (error) {
+      _note(error.message);
+    }
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selected = null;
+      _removeExisting = false;
+    });
+    widget.onChanged(null, false);
+  }
+
+  void _removeProof() {
+    setState(() {
+      _selected = null;
+      _removeExisting = true;
+    });
+    widget.onChanged(null, true);
+  }
+
+  void _note(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = _selected;
+    final hasExisting = widget.proofUrl.isNotEmpty && !_removeExisting;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Certification proof image', style: AppTextStyles.labelLarge),
+        const SizedBox(height: AppDimensions.xs),
+        if (selected != null)
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppDimensions.radiusSm),
+                child: Image.memory(
+                  selected.bytes,
+                  width: 52,
+                  height: 52,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(width: AppDimensions.sm),
+              Expanded(
+                child: Text(
+                  selected.filename,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.bodySmall,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove selected proof image',
+                onPressed: _clearSelection,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          )
+        else if (hasExisting)
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(AppDimensions.radiusSm),
+                child: Image.network(
+                  widget.proofUrl,
+                  width: 52,
+                  height: 52,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stack) => const SizedBox(
+                    width: 52,
+                    height: 52,
+                    child: Icon(Icons.image_not_supported_outlined),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppDimensions.sm),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () async {
+                    final failure = await LinkOpener.open(widget.proofUrl);
+                    if (failure != null && context.mounted) _note(failure);
+                  },
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('View current proof'),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove certification proof',
+                onPressed: _removeProof,
+                icon: const Icon(Icons.delete_outline, color: AppColors.error),
+              ),
+            ],
+          )
+        else
+          Row(
+            children: [
+              Flexible(
+                child: OutlinedButton.icon(
+                  onPressed: _pickProof,
+                  icon: const Icon(Icons.upload_file_outlined),
+                  label: const Text(
+                    'Upload proof image',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              if (_removeExisting)
+                TextButton(
+                  onPressed: () {
+                    setState(() => _removeExisting = false);
+                    widget.onChanged(null, false);
+                  },
+                  child: const Text('Undo'),
+                ),
+            ],
+          ),
+        if (hasExisting || selected != null)
+          TextButton.icon(
+            onPressed: _pickProof,
+            icon: const Icon(Icons.change_circle_outlined),
+            label: const Text('Replace image'),
+          ),
+        Text(
+          'JPG, PNG or WEBP, up to 10 MB.',
+          style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
+        ),
+      ],
     );
   }
 }

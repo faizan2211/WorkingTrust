@@ -17,7 +17,7 @@ class AppConfig {
   ///   flutter run --dart-define=BACKEND_URL=http://YOUR-PC-IP:3000
   static const String backendUrl = String.fromEnvironment(
     'BACKEND_URL',
-    defaultValue: 'https://mongoose-colonial-deceit.ngrok-free.dev ',
+    defaultValue: 'https://mongoose-colonial-deceit.ngrok-free.dev',
   );
 
   /// The **Web** OAuth client of the same Google Cloud project the backend

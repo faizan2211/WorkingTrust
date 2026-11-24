@@ -30,7 +30,8 @@ class ProjectConversation {
       taskId: taskId,
       name: _text(json['name']) ?? 'WorkingTrust',
       preview: _text(json['preview']) ?? 'No messages yet',
-      lastMessageAt: DateTime.tryParse(json['lastMessageAt']?.toString() ?? ''),
+      lastMessageAt: DateTime.tryParse(json['lastMessageAt']?.toString() ?? '')
+          ?.toLocal(),
       unreadCount: switch (json['unreadCount']) {
         final int value => value < 0 ? 0 : value,
         final String value => int.tryParse(value) ?? 0,

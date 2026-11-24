@@ -105,6 +105,16 @@ Future<void> _choose(WidgetTester tester, int index, String label) async {
   await tester.pump(const Duration(milliseconds: 400));
 }
 
+/// Opens the fields dropdown, ticks [name], then dismisses the sheet.
+Future<void> _pickField(WidgetTester tester, String name) async {
+  await _tap(tester, find.byTooltip('Choose fields'));
+  await _settle(tester);
+  await _tap(tester, find.text(name));
+  await tester.pump();
+  await _tap(tester, find.text('Done'));
+  await _settle(tester);
+}
+
 Future<void> _fillSignupForm(WidgetTester tester, {String? email}) async {
   final fields = find.byType(TextField);
   await _type(tester, fields.at(0), 'Test User');
@@ -161,7 +171,7 @@ void main() {
   ) async {
     await _pumpScreen(tester, const SignupScreen());
     await _fillSignupForm(tester);
-    await _tap(tester, find.text('Web Development'));
+    await _pickField(tester, 'Web Development');
     expect(tester.takeException(), isNull);
 
     await _tap(tester, find.widgetWithText(ElevatedButton, 'Continue'));
@@ -190,10 +200,12 @@ void main() {
     expect(find.textContaining('Account created.'), findsOneWidget);
   });
 
-  testWidgets('the interest chips come from the backend categories', (
+  testWidgets('the fields dropdown lists the backend categories', (
     tester,
   ) async {
     await _pumpScreen(tester, const SignupScreen());
+    await _tap(tester, find.byTooltip('Choose fields'));
+    await _settle(tester);
 
     for (final category in FakeBackend.categories) {
       expect(find.text(category['name']!), findsOneWidget);
@@ -205,7 +217,7 @@ void main() {
   ) async {
     await _pumpScreen(tester, const SignupScreen());
     await _fillSignupForm(tester, email: FakeBackend.takenEmail);
-    await _tap(tester, find.text('Writing'));
+    await _pickField(tester, 'Writing');
 
     await _tapButton(tester, 'Continue');
 

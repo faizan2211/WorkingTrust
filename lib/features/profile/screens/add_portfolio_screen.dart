@@ -8,6 +8,7 @@ import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_dimensions.dart';
 import '../../../app/theme/app_text_styles.dart';
 import '../../../core/utils/file_selection_service.dart';
+import '../../../core/utils/validators.dart';
 import '../../../core/widgets/app_text_field.dart';
 import '../controller/profile_controller.dart';
 import '../services/profile_photo_service.dart';
@@ -103,6 +104,11 @@ class _AddPortfolioScreenState extends State<AddPortfolioScreen> {
   }
 
   Future<void> _addBlock(_BlockType type) async {
+    if (type == _BlockType.link &&
+        _blocks.any((block) => block.type == _BlockType.link)) {
+      _note('Each project can have one link. Remove it before adding another.');
+      return;
+    }
     switch (type) {
       case _BlockType.image:
         final photo = await ProfilePhotoService.instance.pickFile(
@@ -151,7 +157,7 @@ class _AddPortfolioScreenState extends State<AddPortfolioScreen> {
       case _BlockType.document:
         _blockInput.clear();
         final hint = switch (type) {
-          _BlockType.link => 'Paste a link',
+          _BlockType.link => 'Paste a full URL (https://...)',
           _BlockType.code => 'Paste the snippet',
           _BlockType.document => 'Name the audio recording',
           _ => 'Write a short paragraph',
@@ -166,7 +172,9 @@ class _AddPortfolioScreenState extends State<AddPortfolioScreen> {
               maxLines: type == _BlockType.text || type == _BlockType.code
                   ? 4
                   : 1,
-              validator: requiredField,
+              validator: type == _BlockType.link
+                  ? _portfolioLinkValidator
+                  : requiredField,
             ),
           ],
         );
@@ -181,6 +189,14 @@ class _AddPortfolioScreenState extends State<AddPortfolioScreen> {
     }
   }
 
+  String? _portfolioLinkValidator(String? value) {
+    final missing = requiredField(value);
+    if (missing != null) return missing;
+    return Validators.isWebAddress(value!)
+        ? null
+        : 'Enter a valid website URL starting with http:// or https://.';
+  }
+
   /// The backend's own `mediaType` name for a content block.
   String _mediaType(_BlockType type) => switch (type) {
     _BlockType.image => 'image',
@@ -192,9 +208,8 @@ class _AddPortfolioScreenState extends State<AddPortfolioScreen> {
     _BlockType.file => 'file',
   };
 
-  /// Uploads the cover file, then creates the project through the portfolio
-  /// route. Nothing is added to the grid until the server answers with an id,
-  /// so a refused project never appears as if it were stored.
+  /// Uploads an optional cover file, then creates the project through the
+  /// portfolio route. A project may instead consist of a validated link.
   Future<void> _publish(String status) async {
     if (!(_form.currentState?.validate() ?? false)) return;
     if (_blocks.isEmpty) {
@@ -207,21 +222,23 @@ class _AddPortfolioScreenState extends State<AddPortfolioScreen> {
       _note('The project title needs at least 2 characters.');
       return;
     }
+    _Block? linkBlock;
+    for (final block in _blocks) {
+      if (block.type == _BlockType.link) {
+        linkBlock = block;
+        break;
+      }
+    }
     final cover = _blocks.firstWhere(
       (block) => block.upload != null,
-      orElse: () => _blocks.first,
+      orElse: () => linkBlock ?? _blocks.first,
     );
     final upload = cover.upload;
-    if (upload == null) {
-      // The route insists a project points at a stored file: a project made
-      // only of text or a link is refused, so it is not worth asking.
-      _note('Add an image, video, or document — a project needs a media file.');
+    final link = linkBlock?.label.trim() ?? '';
+    if (upload == null && link.isEmpty) {
+      _note('Add a project link or upload an image or document.');
       return;
     }
-    final link = _blocks
-        .where((block) => block.type == _BlockType.link)
-        .map((block) => block.label)
-        .firstWhere((label) => label.isNotEmpty, orElse: () => '');
     final profile = ProfileController.instance;
     final stored = await profile.publishPortfolio((
       title: title,
@@ -230,10 +247,10 @@ class _AddPortfolioScreenState extends State<AddPortfolioScreen> {
       description: _description.text.trim(),
       link: link,
       status: status,
-      kind: _mediaType(cover.type),
-      bytes: upload.bytes,
-      filename: upload.filename,
-      mimeType: upload.mimeType,
+      kind: upload == null ? 'link' : _mediaType(cover.type),
+      bytes: upload?.bytes,
+      filename: upload?.filename ?? '',
+      mimeType: upload?.mimeType ?? '',
     ));
     if (!mounted) return;
     if (!stored) {
@@ -244,9 +261,8 @@ class _AddPortfolioScreenState extends State<AddPortfolioScreen> {
       );
       return;
     }
-    // A stored project has one media file and one link, so the blocks beyond
-    // those two are not kept and saying so is part of publishing honestly.
-    final dropped = _blocks.length - 1 - (link.isEmpty ? 0 : 1);
+    final storedBlocks = (upload == null ? 0 : 1) + (link.isEmpty ? 0 : 1);
+    final dropped = _blocks.length - storedBlocks;
     _note(
       (status == 'DRAFT' ? '$title saved as draft.' : '$title published.') +
           (dropped <= 0 ? '' : ' $dropped content block(s) had nowhere to go.'),

@@ -103,6 +103,10 @@ class TransactionsController extends ChangeNotifier {
 
   Future<void> refresh() => load(force: true);
 
+  /// All rows matching the current server-side filters, for a full export.
+  Future<List<TransactionRow>> fetchAllMatchingTransactions() =>
+      _service.fetchAllTransactions(type: _type, client: _client);
+
   /// The next page, appended to what is already on screen.
   Future<void> loadMore() async {
     if (_inFlight || _loadingMore || !hasMore) return;

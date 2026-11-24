@@ -4,34 +4,56 @@ import 'read_controller.dart';
 
 /// My Stats, from `GET /api/reports/my-stats`.
 ///
-/// The route owns both windows: `proposalDays` and `profileDays` accept 7, 15 or
-/// 30 and fall back to their own default for anything else, so the dropdowns
-/// only offer those three. Changing one re-reads the route instead of filtering
-/// the old answer, because a different window is a different computation.
+/// Each chart is read from the server for its selected calendar-date range.
 class StatsController extends ReadController<MyStatsSnapshot> {
   StatsController._();
 
   static final StatsController instance = StatsController._();
 
-  static const List<int> windows = [7, 15, 30];
-
   final ReportsService _service = ReportsService.instance;
 
-  int _proposalDays = 15;
-  int _profileDays = 7;
+  DateTime _proposalStart = _defaultStart(15);
+  DateTime? _proposalEnd;
+  DateTime _profileStart = _defaultStart(7);
+  DateTime? _profileEnd;
 
-  int get proposalDays => _proposalDays;
-  int get profileDays => _profileDays;
+  DateTime get proposalStart => _proposalStart;
+  DateTime? get proposalEnd => _proposalEnd;
+  DateTime get profileStart => _profileStart;
+  DateTime? get profileEnd => _profileEnd;
+  int get proposalDays =>
+      (_proposalEnd ?? _dateOnly(DateTime.now()))
+          .difference(_proposalStart)
+          .inDays +
+      1;
 
-  Future<void> setProposalDays(int days) async {
-    if (days == _proposalDays) return;
-    _proposalDays = days;
+  static DateTime _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  static DateTime _defaultStart(int days) =>
+      _dateOnly(DateTime.now()).subtract(Duration(days: days - 1));
+
+  Future<void> setProposalRange(DateTime start, DateTime? end) async {
+    final nextStart = _dateOnly(start);
+    final nextEnd = end == null ? null : _dateOnly(end);
+    if (nextEnd != null && nextEnd.isBefore(nextStart)) {
+      throw ArgumentError('The end date must be on or after the start date.');
+    }
+    if (nextStart == _proposalStart && nextEnd == _proposalEnd) return;
+    _proposalStart = nextStart;
+    _proposalEnd = nextEnd;
     await load(force: true);
   }
 
-  Future<void> setProfileDays(int days) async {
-    if (days == _profileDays) return;
-    _profileDays = days;
+  Future<void> setProfileRange(DateTime start, DateTime? end) async {
+    final nextStart = _dateOnly(start);
+    final nextEnd = end == null ? null : _dateOnly(end);
+    if (nextEnd != null && nextEnd.isBefore(nextStart)) {
+      throw ArgumentError('The end date must be on or after the start date.');
+    }
+    if (nextStart == _profileStart && nextEnd == _profileEnd) return;
+    _profileStart = nextStart;
+    _profileEnd = nextEnd;
     await load(force: true);
   }
 
@@ -55,7 +77,9 @@ class StatsController extends ReadController<MyStatsSnapshot> {
 
   @override
   Future<MyStatsSnapshot> read() => _service.fetchStats(
-    proposalDays: _proposalDays,
-    profileDays: _profileDays,
+    proposalStart: _proposalStart,
+    proposalEnd: _proposalEnd,
+    profileStart: _profileStart,
+    profileEnd: _profileEnd,
   );
 }

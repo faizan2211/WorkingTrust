@@ -56,16 +56,58 @@ class ReportsService {
     return transactionsFromJson(response);
   }
 
-  /// My Stats for the two windows the route offers.
-  Future<MyStatsSnapshot> fetchStats({
-    int proposalDays = 15,
-    int profileDays = 7,
+  /// Reads every page for one server-side filter selection.
+  ///
+  /// The export must not stop at the current page; if the feed changes while
+  /// it is being paged and a row is missing, fail rather than save a partial
+  /// report as complete.
+  Future<List<TransactionRow>> fetchAllTransactions({
+    TransactionFilter type = TransactionFilter.all,
+    String client = 'all',
   }) async {
+    const exportPageSize = 200;
+    final first = await fetchTransactions(
+      page: 1,
+      limit: exportPageSize,
+      type: type,
+      client: client,
+    );
+    final rows = <TransactionRow>[...first.rows];
+    for (var page = 2; page <= first.totalPages; page++) {
+      final next = await fetchTransactions(
+        page: page,
+        limit: exportPageSize,
+        type: type,
+        client: client,
+      );
+      rows.addAll(next.rows);
+    }
+    if (rows.length < first.total) {
+      throw NetworkException(
+        'Could not load every transaction. Please try the PDF download again.',
+      );
+    }
+    return rows;
+  }
+
+  /// My Stats for the selected calendar-date ranges.
+  Future<MyStatsSnapshot> fetchStats({
+    required DateTime proposalStart,
+    DateTime? proposalEnd,
+    required DateTime profileStart,
+    DateTime? profileEnd,
+  }) async {
+    String dateParam(DateTime date) =>
+        '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
     final response = await _apiClient.get(
       ApiEndpoints.reportsMyStats,
       queryParameters: <String, String>{
-        'proposalDays': '$proposalDays',
-        'profileDays': '$profileDays',
+        'proposalStart': dateParam(proposalStart),
+        if (proposalEnd != null) 'proposalEnd': dateParam(proposalEnd),
+        'profileStart': dateParam(profileStart),
+        if (profileEnd != null) 'profileEnd': dateParam(profileEnd),
       },
     );
     if (response is! Map<String, dynamic>) {

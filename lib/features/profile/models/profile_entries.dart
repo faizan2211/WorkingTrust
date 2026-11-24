@@ -22,6 +22,7 @@ typedef Certification = ({
   String provider,
   String issued,
   String credentialId,
+  String certificateUrl,
   String description,
 });
 
@@ -38,24 +39,28 @@ typedef Employment = ({
   String description,
 });
 
-/// A completed or running order shown under "Work History".
-///
-/// No profile route stores these: the rows come from the account's orders, and
-/// the app has no endpoint that returns them, so the section can only ever show
-/// what this device was told about.
+/// A completed or running assignment shown under "Work History".
 typedef WorkHistoryJob = ({
+  String id,
   String title,
-  double rating,
+  double? rating,
   int reviews,
   String period,
   String review,
-  String amount,
+  double amount,
   String pricing,
   bool inProgress,
+  DateTime sortDate,
 });
 
-/// A published project. [image] is the URL the media route stored, [kind] is
-/// the backend's own `mediaType`, and [status] is `DRAFT` or `PUBLISHED`.
+typedef WorkHistory = ({
+  List<WorkHistoryJob> completed,
+  List<WorkHistoryJob> inProgress,
+});
+
+/// A published project. [image] is the optional URL the media route stored,
+/// [kind] is the backend's own `mediaType`, and [status] is `DRAFT` or
+/// `PUBLISHED`.
 typedef PortfolioItem = ({
   String id,
   String title,

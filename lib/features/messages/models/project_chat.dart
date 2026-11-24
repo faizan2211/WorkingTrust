@@ -40,7 +40,7 @@ class ChatMessage {
     // A row with no readable time still belongs in the list; it groups with the
     // moment it was read rather than being dropped.
     createdAt:
-        DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
+        DateTime.tryParse(json['createdAt']?.toString() ?? '')?.toLocal() ??
         DateTime.now(),
     senderId: _text(json['senderId']) ?? '',
     displayName: _text(json['displayName']) ?? 'WorkingTrust',

@@ -157,6 +157,11 @@ void main() {
     final rect = tester.getRect(find.byType(MarqueeBanner));
     expect(rect.left, 0);
     expect(rect.width, screenWidth);
+    final next = tester.getRect(find.widgetWithText(ElevatedButton, 'Next'));
+    expect(next.top - rect.bottom, inInclusiveRange(8, 24));
+    final screenHeight =
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    expect(rect.top, greaterThan(screenHeight * 0.7));
 
     for (final label in [
       'Google',
@@ -166,6 +171,29 @@ void main() {
       'Facebook',
     ]) {
       expect(find.text(label), findsWidgets, reason: label);
+    }
+  });
+
+  testWidgets('hero footer stays reachable on small and wide screens', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    for (final width in [320.0, 700.0, 1200.0]) {
+      tester.view.physicalSize = Size(width, 640);
+      tester.view.devicePixelRatio = 1;
+      await _mountOnboarding(tester);
+      final banner = tester.getRect(find.byType(MarqueeBanner));
+      final next = find.widgetWithText(ElevatedButton, 'Next');
+      expect(tester.getRect(next).bottom, lessThanOrEqualTo(640));
+      expect(banner.bottom, lessThan(tester.getRect(next).top));
+      await _advance(tester, 1);
+      expect(find.byType(MarqueeBanner), findsNothing);
+      await tester.drag(find.byType(PageView), Offset(width * 0.8, 0));
+      for (var frame = 0; frame < 10; frame++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(find.byType(MarqueeBanner), findsOneWidget);
+      expect(tester.takeException(), isNull);
     }
   });
 

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show OverflowBoxFit;
 
 import '../../../app/routes/route_names.dart';
 import '../../../app/theme/app_colors.dart';
@@ -74,12 +73,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   setState(() => _currentPage = index);
                 },
                 children: [
-                  _HeroPage(marqueeKey: _marqueeKey),
+                  const _HeroPage(),
                   const _ServicesPage(),
                   const _SafetyPage(),
                 ],
               ),
             ),
+            if (_currentPage == 0) ...[
+              MarqueeBanner(key: _marqueeKey),
+              const SizedBox(height: AppDimensions.sm),
+            ],
             Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: AppDimensions.lg,
@@ -154,8 +157,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 // ---------------------------------------------------------------------------
 
 class _HeroPage extends StatefulWidget {
-  final GlobalKey<_MarqueeBannerState> marqueeKey;
-  const _HeroPage({required this.marqueeKey});
+  const _HeroPage();
 
   @override
   State<_HeroPage> createState() => _HeroPageState();
@@ -230,6 +232,7 @@ class _HeroPageState extends State<_HeroPage>
               _CategoryChip(label: 'UI/UX Design'),
               _CategoryChip(label: 'Mobile App Development'),
               _CategoryChip(label: 'Web Development'),
+              _CategoryChip(label: '+ Many more', emphasized: true),
             ],
           ),
           const SizedBox(height: AppDimensions.lg),
@@ -245,19 +248,6 @@ class _HeroPageState extends State<_HeroPage>
                       controller: _typing,
                     ),
             ),
-          ),
-          const SizedBox(height: AppDimensions.md),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final fullWidth = constraints.maxWidth + AppDimensions.lg * 2;
-              return OverflowBox(
-                minWidth: fullWidth,
-                maxWidth: fullWidth,
-                fit: OverflowBoxFit.deferToChild,
-                alignment: Alignment.center,
-                child: MarqueeBanner(key: widget.marqueeKey),
-              );
-            },
           ),
           const SizedBox(height: AppDimensions.md),
         ],
@@ -330,16 +320,24 @@ class _TypingIntro extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(AppDimensions.md),
           decoration: BoxDecoration(
-            color: AppColors.surface,
+            gradient: LinearGradient(
+              begin: Alignment(-1 + controller.value * 2, -1),
+              end: Alignment(1 - controller.value * 2, 1),
+              colors: const [
+                AppColors.primaryDark,
+                AppColors.primary,
+                AppColors.primaryLight,
+              ],
+            ),
             borderRadius: const BorderRadius.all(
               Radius.circular(AppDimensions.radiusLg),
             ),
-            border: Border.all(color: AppColors.border),
+            border: Border.all(color: AppColors.primaryLight),
             boxShadow: [
               BoxShadow(
-                color: AppColors.shadow.withValues(alpha: 0.35),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
+                color: AppColors.primaryLight.withValues(alpha: 0.25),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
               ),
             ],
           ),
@@ -351,9 +349,9 @@ class _TypingIntro extends StatelessWidget {
                 'CLIENT IS TYPING...',
                 style: TextStyle(
                   fontSize: 10,
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w600,
                   letterSpacing: 1.2,
-                  color: AppColors.primary.withValues(alpha: 0.75),
+                  color: AppColors.accent,
                 ),
               ),
               const SizedBox(height: AppDimensions.sm),
@@ -363,16 +361,16 @@ class _TypingIntro extends StatelessWidget {
                     fontFamily: 'monospace',
                     fontSize: 13,
                     height: 1.5,
-                    color: AppColors.textPrimary,
+                    color: AppColors.textOnPrimary,
                   ),
                   children: [
                     TextSpan(text: typed),
                     TextSpan(
                       text: '|',
                       style: TextStyle(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                         color: caretVisible
-                            ? AppColors.primary
+                            ? AppColors.accent
                             : Colors.transparent,
                       ),
                     ),
@@ -389,15 +387,18 @@ class _TypingIntro extends StatelessWidget {
 
 class _CategoryChip extends StatelessWidget {
   final String label;
-  const _CategoryChip({required this.label});
+  final bool emphasized;
+  const _CategoryChip({required this.label, this.emphasized = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: Border.all(color: AppColors.border),
+        color: emphasized ? AppColors.accent : AppColors.surface,
+        border: Border.all(
+          color: emphasized ? AppColors.primary : AppColors.border,
+        ),
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
@@ -410,8 +411,8 @@ class _CategoryChip extends StatelessWidget {
       child: Text(
         label,
         style: AppTextStyles.bodySmall.copyWith(
-          color: AppColors.textPrimary,
-          fontWeight: FontWeight.w500,
+          color: emphasized ? AppColors.primary : AppColors.textPrimary,
+          fontWeight: emphasized ? FontWeight.w700 : FontWeight.w500,
           fontSize: 12,
         ),
       ),
@@ -566,7 +567,7 @@ class _LogoItem extends StatelessWidget {
             logo.label ?? '',
             style: TextStyle(
               fontSize: logoHeight * 0.52,
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w600,
               color: AppColors.primary,
               letterSpacing: 0.5,
             ),
